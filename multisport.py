@@ -13,25 +13,25 @@ from scipy.interpolate import interp1d
 # ---------------------------------------------------
 class Config:
     """Configuration settings for TrackNet trajectory detection"""
-    
+
     # Paths
     VIDEO_PATH = "/content/drive/MyDrive/Tracknet/Tracknet_output/videos/clip4.mp4"
     OUT_VIDEO_PATH = "/content/drive/MyDrive/Tracknet/Tracknet_output/videos/tennis_annotated3.mp4"
     CHECKPOINT_PATH = "/content/drive/MyDrive/Tracknet/Tracknet_output/models/best_model.pth"
-    
+
     # Model parameters
     IMAGE_HEIGHT = 240
     IMAGE_WIDTH = 432
     INPUT_CHANNELS = 9
     OUTPUT_CHANNELS = 1
-    
+
     # Processing parameters
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     BATCH_SIZE = 8
     DETECTION_THRESHOLD = 0.02
     SMOOTH_WINDOW = 5
     HEATMAP_ALPHA = 0.3
-    
+
     # Trajectory visualization
     TRAJECTORY_COLOR = (255, 128, 0)  # Blue color in BGR
     TRAJECTORY_THICKNESS = 3
@@ -45,7 +45,7 @@ class Config:
 # ---------------------------------------------------
 class ConvBlock(nn.Module):
     """Basic convolutional block with batch normalization and ReLU"""
-    
+
     def __init__(self, in_channels, out_channels):
         super().__init__()
         # Changed 'self.conv_block' to 'self.net' to match the saved state_dict
@@ -57,93 +57,93 @@ class ConvBlock(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
-    
+
     def forward(self, x):
         # Changed 'return self.conv_block(x)' to 'return self.net(x)'
         return self.net(x)
 
 class TrackNetLite(nn.Module):
     """Lightweight U-Net architecture for ball tracking"""
-    
+
     def __init__(self, in_channels=9, out_channels=1):
         super().__init__()
         base_channels = 32
-        
+
         # Encoder
         self.enc1 = ConvBlock(in_channels, base_channels)
         self.enc2 = ConvBlock(base_channels, base_channels * 2)
         self.enc3 = ConvBlock(base_channels * 2, base_channels * 4)
         self.enc4 = ConvBlock(base_channels * 4, base_channels * 8)
-        
+
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.bottleneck = ConvBlock(base_channels * 8, base_channels * 16)
-        
+
         # Decoder
         self.up4 = nn.ConvTranspose2d(base_channels * 16, base_channels * 8, kernel_size=2, stride=2)
         self.dec4 = ConvBlock(base_channels * 16, base_channels * 8)
-        
+
         self.up3 = nn.ConvTranspose2d(base_channels * 8, base_channels * 4, kernel_size=2, stride=2)
         self.dec3 = ConvBlock(base_channels * 8, base_channels * 4)
-        
+
         self.up2 = nn.ConvTranspose2d(base_channels * 4, base_channels * 2, kernel_size=2, stride=2)
         self.dec2 = ConvBlock(base_channels * 4, base_channels * 2)
-        
+
         self.up1 = nn.ConvTranspose2d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = ConvBlock(base_channels * 2, base_channels)
-        
+
         # Changed 'self.final_conv' to 'self.final' to match the saved state_dict
         self.final = nn.Conv2d(base_channels, out_channels, kernel_size=1)
-    
+
     def _crop_to_match(self, source, target):
         """Crop source tensor to match target tensor dimensions"""
         sh, sw = source.shape[-2], source.shape[-1]
         th, tw = target.shape[-2], target.shape[-1]
-        
+
         if sh == th and sw == tw:
             return source
-            
+
         dh, dw = sh - th, sw - tw
         top, left = dh // 2, dw // 2
         return source[..., top:top + th, left:left + tw]
-    
+
     def forward(self, x):
         # Encoder path
         e1 = self.enc1(x)
         p1 = self.pool(e1)
-        
+
         e2 = self.enc2(p1)
         p2 = self.pool(e2)
-        
+
         e3 = self.enc3(p2)
         p3 = self.pool(e3)
-        
+
         e4 = self.enc4(p3)
         p4 = self.pool(e4)
-        
+
         # Bottleneck
         bottleneck = self.bottleneck(p4)
-        
+
         # Decoder path with skip connections
         u4 = self.up4(bottleneck)
         u4 = F.interpolate(u4, size=e4.shape[2:], mode='bilinear', align_corners=True)
         e4_cropped = self._crop_to_match(e4, u4)
         d4 = self.dec4(torch.cat([u4, e4_cropped], dim=1))
-        
+
         u3 = self.up3(d4)
         u3 = F.interpolate(u3, size=e3.shape[2:], mode='bilinear', align_corners=True)
         e3_cropped = self._crop_to_match(e3, u3)
         d3 = self.dec3(torch.cat([u3, e3_cropped], dim=1))
-        
+
         u2 = self.up2(d3)
         u2 = F.interpolate(u2, size=e2.shape[2:], mode='bilinear', align_corners=True)
         e2_cropped = self._crop_to_match(e2, u2)
         d2 = self.dec2(torch.cat([u2, e2_cropped], dim=1))
-        
+
         u1 = self.up1(d2)
         u1 = F.interpolate(u1, size=e1.shape[2:], mode='bilinear', align_corners=True)
         e1_cropped = self._crop_to_match(e1, u1)
         d1 = self.dec1(torch.cat([u1, e1_cropped], dim=1))
-        
+
         # Changed `output = self.final_conv(d1)` to `output = self.final(d1)`
         output = self.final(d1)
         return torch.sigmoid(output)
@@ -155,28 +155,28 @@ class TrackNetLite(nn.Module):
 # ---------------------------------------------------
 class ModelLoader:
     """Handles loading of TrackNet models from checkpoints"""
-    
+
     @staticmethod
     def load_model(checkpoint_path, model_class, device="cpu"):
         """
         Load model from checkpoint with automatic detection of format
-        
+
         Args:
             checkpoint_path: Path to model checkpoint
             model_class: Model class to instantiate
             device: Device to load model on
-            
+
         Returns:
             tuple: (model, model_type)
         """
         checkpoint_path = str(checkpoint_path)
-        
+
         try:
             checkpoint = torch.load(checkpoint_path, map_location=device)
-            
+
             if isinstance(checkpoint, dict):
                 # Handle state dict loading
-                state_dict = checkpoint.get('model_state_dict', 
+                state_dict = checkpoint.get('model_state_dict',
                                          checkpoint.get('state_dict', checkpoint))
                 model = model_class()
                 model.load_state_dict(state_dict)
@@ -192,7 +192,7 @@ class ModelLoader:
                     return scripted_model, "scripted"
                 except Exception:
                     raise RuntimeError(f"Invalid model format at {checkpoint_path}")
-                    
+
         except Exception as e:
             raise RuntimeError(f"Failed to load model from {checkpoint_path}: {e}")
 
@@ -202,64 +202,64 @@ class ModelLoader:
 # ---------------------------------------------------
 class VideoPreprocessor:
     """Handles video loading and frame preprocessing for TrackNet"""
-    
+
     def __init__(self, config):
         self.config = config
-    
+
     def load_video(self, video_path):
         """Load video and extract all frames"""
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video: {video_path}")
-        
+
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
+
         frames = []
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             frames.append(frame)
-        
+
         cap.release()
-        
+
         print(f"[VideoPreprocessor] Loaded {len(frames)} frames "
               f"({width}x{height}) at {fps} fps")
-        
+
         return frames, (width, height), fps
-    
+
     def resize_with_padding(self, frame, target_height, target_width):
         """Resize frame while preserving aspect ratio using padding"""
         h, w = frame.shape[:2]
         scale = min(target_width / w, target_height / h)
-        
+
         new_width = int(round(w * scale))
         new_height = int(round(h * scale))
-        
-        resized = cv2.resize(frame, (new_width, new_height), 
+
+        resized = cv2.resize(frame, (new_width, new_height),
                              interpolation=cv2.INTER_LINEAR)
-        
+
         pad_width = target_width - new_width
         pad_height = target_height - new_height
         pad_left = pad_width // 2
         pad_top = pad_height // 2
-        
+
         padded = cv2.copyMakeBorder(
-            resized, pad_top, pad_height - pad_top, 
+            resized, pad_top, pad_height - pad_top,
             pad_left, pad_width - pad_left,
             borderType=cv2.BORDER_CONSTANT, value=(0, 0, 0)
         )
-        
+
         return padded, scale, pad_left, pad_top
-    
+
     def create_frame_stacks(self, frames):
         """Create 3-frame stacks for TrackNet input"""
         preprocessed_frames = []
         scales = []
         padding_info = []
-        
+
         # Preprocess individual frames
         for frame in frames:
             processed, scale, pad_left, pad_top = self.resize_with_padding(
@@ -268,27 +268,27 @@ class VideoPreprocessor:
             preprocessed_frames.append(processed)
             scales.append(scale)
             padding_info.append((pad_left, pad_top))
-        
+
         # Create 3-frame stacks
         stacks = []
         num_frames = len(frames)
-        
+
         for i in range(num_frames):
             prev_idx = max(0, i - 1)
             next_idx = min(num_frames - 1, i + 1)
-            
+
             # Stack previous, current, next frames
             stack = np.concatenate([
                 preprocessed_frames[prev_idx],
                 preprocessed_frames[i],
                 preprocessed_frames[next_idx]
             ], axis=2)  # Shape: (H, W, 9)
-            
+
             # Convert to model input format: (C, H, W)
             stack_normalized = stack.astype(np.float32) / 255.0
             stack_transposed = np.transpose(stack_normalized, (2, 0, 1))
             stacks.append(stack_transposed)
-        
+
         return stacks, scales, padding_info
 
 
@@ -297,77 +297,78 @@ class VideoPreprocessor:
 # ---------------------------------------------------
 class BallDetector:
     """Handles ball detection from heatmaps"""
-    
+
     def __init__(self, config, model, device):
         self.config = config
         self.model = model
         self.device = device
-    
+
     def detect_ball_batch(self, frame_stacks, scales, padding_info):
         """Run batch inference on frame stacks"""
         positions = []
         heatmaps = []
-        
+
         num_frames = len(frame_stacks)
         batch_size = self.config.BATCH_SIZE
-        
+
         print("[BallDetector] Running batch inference...")
-        
+
         for i in tqdm(range(0, num_frames, batch_size), desc="Processing batches"):
             batch_data = frame_stacks[i:i + batch_size]
             batch_tensor = torch.from_numpy(np.stack(batch_data)).to(self.device)
-            
+
             with torch.no_grad():
                 predictions = self.model(batch_tensor)
-            
+
             # Process each prediction in the batch
             for j, pred in enumerate(predictions):
                 frame_idx = i + j
                 heatmap = pred[0].cpu().numpy()
-                
+
                 # Find peak in heatmap
                 x, y, confidence = self._find_heatmap_peak(heatmap)
-                
+
                 if confidence >= self.config.DETECTION_THRESHOLD:
                     # Convert back to original coordinates
                     scale = scales[frame_idx]
                     pad_left, pad_top = padding_info[frame_idx]
-                    
+
                     x_orig = int(round((x - pad_left) / scale))
                     y_orig = int(round((y - pad_top) / scale))
                     positions.append((x_orig, y_orig))
                 else:
                     positions.append(None)
-                
+
                 heatmaps.append(heatmap)
-        
+
         return positions, heatmaps
-    
+
     def _find_heatmap_peak(self, heatmap):
         """Find the peak location in a heatmap"""
         heatmap_uint8 = (heatmap * 255).astype(np.uint8)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(heatmap_uint8)
-        
+
         x, y = max_loc
         confidence = float(max_val / 255.0)
-        
+
         return x, y, confidence
 
 
 # ---------------------------------------------------
 # trajectory.py
 # ---------------------------------------------------
+
 class TrajectoryProcessor:
     """Handles trajectory smoothing and interpolation"""
-    
+
     def __init__(self, config):
         self.config = config
-    
+
     def interpolate_missing_positions(self, positions):
         """Fill in missing positions with interpolation"""
         positions = positions.copy()
         n = len(positions)
-        
+
         # Forward fill
         last_valid = None
         for i in range(n):
@@ -375,7 +376,7 @@ class TrajectoryProcessor:
                 last_valid = positions[i]
             elif last_valid is not None:
                 positions[i] = last_valid
-        
+
         # Backward fill for leading None values
         last_valid = None
         for i in reversed(range(n)):
@@ -383,177 +384,78 @@ class TrajectoryProcessor:
                 last_valid = positions[i]
             elif last_valid is not None:
                 positions[i] = last_valid
-        
+
         return positions
-    
+
     def smooth_trajectory(self, positions, window_size=None):
         """Apply moving average smoothing to trajectory"""
         if window_size is None:
             window_size = self.config.SMOOTH_WINDOW
-        
+
         smoothed = []
         x_buffer = []
         y_buffer = []
-        
+
         for pos in positions:
             if pos is None:
                 smoothed.append(None)
             else:
                 x_buffer.append(pos[0])
                 y_buffer.append(pos[1])
-                
+
                 # Keep buffer size within window
                 if len(x_buffer) > window_size:
                     x_buffer.pop(0)
                     y_buffer.pop(0)
-                
+
                 # Calculate smoothed position
                 avg_x = int(round(sum(x_buffer) / len(x_buffer)))
                 avg_y = int(round(sum(y_buffer) / len(y_buffer)))
                 smoothed.append((avg_x, avg_y))
-        
+
         return smoothed
-    
+
     def create_smooth_curve(self, positions, num_points=None):
         """Create smooth curve points for trajectory visualization"""
         valid_positions = [(i, pos) for i, pos in enumerate(positions) if pos is not None]
-        
+
         if len(valid_positions) < 2:
             return positions
-        
+
         # Extract frame indices and coordinates
         frame_indices = [item[0] for item in valid_positions]
         x_coords = [item[1][0] for item in valid_positions]
         y_coords = [item[1][1] for item in valid_positions]
-        
+
         if len(valid_positions) < 4:
             # Linear interpolation for few points
             kind = 'linear'
         else:
             # Cubic spline for smooth curves
             kind = 'cubic'
-        
+
         try:
             # Create interpolation functions
-            f_x = interp1d(frame_indices, x_coords, kind=kind, 
-                           bounds_error=False, fill_value='extrapolate')
-            f_y = interp1d(frame_indices, y_coords, kind=kind, 
-                           bounds_error=False, fill_value='extrapolate')
-            
+            f_x = interp1d(frame_indices, x_coords, kind=kind,
+                         bounds_error=False, fill_value='extrapolate')
+            f_y = interp1d(frame_indices, y_coords, kind=kind,
+                         bounds_error=False, fill_value='extrapolate')
+
             # Generate smooth curve
             smooth_positions = []
             for i in range(len(positions)):
                 if positions[i] is not None:
-                    x_smooth = int(np.round(f_x(i)))
-                    y_smooth = int(np.round(f_y(i)))
+                    x_smooth = int(round(f_x(i)))
+                    y_smooth = int(round(f_y(i)))
                     smooth_positions.append((x_smooth, y_smooth))
                 else:
                     smooth_positions.append(None)
-            
+
             return smooth_positions
-            
+
         except Exception as e:
             print(f"[TrajectoryProcessor] Curve smoothing failed: {e}")
             return positions
-
-# class TrajectoryProcessor:
-#     """Handles trajectory smoothing and interpolation"""
-    
-#     def __init__(self, config):
-#         self.config = config
-    
-#     def interpolate_missing_positions(self, positions):
-#         """Fill in missing positions with interpolation"""
-#         positions = positions.copy()
-#         n = len(positions)
-        
-#         # Forward fill
-#         last_valid = None
-#         for i in range(n):
-#             if positions[i] is not None:
-#                 last_valid = positions[i]
-#             elif last_valid is not None:
-#                 positions[i] = last_valid
-        
-#         # Backward fill for leading None values
-#         last_valid = None
-#         for i in reversed(range(n)):
-#             if positions[i] is not None:
-#                 last_valid = positions[i]
-#             elif last_valid is not None:
-#                 positions[i] = last_valid
-        
-#         return positions
-    
-#     def smooth_trajectory(self, positions, window_size=None):
-#         """Apply moving average smoothing to trajectory"""
-#         if window_size is None:
-#             window_size = self.config.SMOOTH_WINDOW
-        
-#         smoothed = []
-#         x_buffer = []
-#         y_buffer = []
-        
-#         for pos in positions:
-#             if pos is None:
-#                 smoothed.append(None)
-#             else:
-#                 x_buffer.append(pos[0])
-#                 y_buffer.append(pos[1])
-                
-#                 # Keep buffer size within window
-#                 if len(x_buffer) > window_size:
-#                     x_buffer.pop(0)
-#                     y_buffer.pop(0)
-                
-#                 # Calculate smoothed position
-#                 avg_x = int(round(sum(x_buffer) / len(x_buffer)))
-#                 avg_y = int(round(sum(y_buffer) / len(y_buffer)))
-#                 smoothed.append((avg_x, avg_y))
-        
-#         return smoothed
-    
-#     def create_smooth_curve(self, positions, num_points=None):
-#         """Create smooth curve points for trajectory visualization"""
-#         valid_positions = [(i, pos) for i, pos in enumerate(positions) if pos is not None]
-        
-#         if len(valid_positions) < 2:
-#             return positions
-        
-#         # Extract frame indices and coordinates
-#         frame_indices = [item[0] for item in valid_positions]
-#         x_coords = [item[1][0] for item in valid_positions]
-#         y_coords = [item[1][1] for item in valid_positions]
-        
-#         if len(valid_positions) < 4:
-#             # Linear interpolation for few points
-#             kind = 'linear'
-#         else:
-#             # Cubic spline for smooth curves
-#             kind = 'cubic'
-        
-#         try:
-#             # Create interpolation functions
-#             f_x = interp1d(frame_indices, x_coords, kind=kind, 
-#                          bounds_error=False, fill_value='extrapolate')
-#             f_y = interp1d(frame_indices, y_coords, kind=kind, 
-#                          bounds_error=False, fill_value='extrapolate')
-            
-#             # Generate smooth curve
-#             smooth_positions = []
-#             for i in range(len(positions)):
-#                 if positions[i] is not None:
-#                     x_smooth = int(round(f_x(i)))
-#                     y_smooth = int(round(f_y(i)))
-#                     smooth_positions.append((x_smooth, y_smooth))
-#                 else:
-#                     smooth_positions.append(None)
-            
-#             return smooth_positions
-            
-#         except Exception as e:
-#             print(f"[TrajectoryProcessor] Curve smoothing failed: {e}")
-#             return positions
 
 
 
