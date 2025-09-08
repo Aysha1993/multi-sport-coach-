@@ -15,7 +15,7 @@ st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
 st.title("🎾 TrackNet Tennis Analyzer with LLM Feedback & Video Preview")
 
 # -------------------------------
-# Initialize LLM
+# Cached LLM
 # -------------------------------
 @st.cache_resource
 def load_llm():
@@ -66,15 +66,13 @@ if uploaded_video:
     # -------------------------------
     # TrackNet repo & weights
     # -------------------------------
-    TRACKNET_DIR = "TrackNet"
+    TRACKNET_DIR = os.path.join(temp_dir, "TrackNet")
     MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
     os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
 
     if not os.path.exists(TRACKNET_DIR):
-        st.info("Cloning TrackNet repository...")
-        subprocess.run(
-            f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True
-        )
+        st.info("Cloning TrackNet repo...")
+        subprocess.run(f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True)
 
     WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
     if not os.path.exists(MODEL_PATH):
@@ -85,7 +83,7 @@ if uploaded_video:
     # Run inference
     # -------------------------------
     st.info("Running TrackNet inference... ⏳")
-    OUTPUT_DIR = os.path.join(TRACKNET_DIR, "output")
+    OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
     OUTPUT_CSV = os.path.join(OUTPUT_DIR, "trajectory.csv")
@@ -95,15 +93,19 @@ if uploaded_video:
     subprocess.run(infer_cmd, shell=True)
 
     # -------------------------------
-    # Extract trajectory
+    # Extract trajectory CSV
     # -------------------------------
     if not os.path.exists(OUTPUT_CSV):
-        st.info("CSV missing, extracting ball positions from annotated video...")
+        st.info("CSV missing, extracting ball positions...")
         cap = cv2.VideoCapture(OUTPUT_VIDEO)
         positions = []
         while True:
             ret, frame = cap.read()
             if not ret: break
+            # -------------------------------
+            # Downscale frame to reduce RAM
+            # -------------------------------
+            frame = cv2.resize(frame, (640, 360))
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             mask1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
             mask2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
@@ -163,6 +165,8 @@ if uploaded_video:
     while True:
         ret, frame = cap.read()
         if not ret: break
+        # Downscale for RAM efficiency
+        frame = cv2.resize(frame, (640, 360))
         if frame_idx in trajectory_dict:
             x, y = int(trajectory_dict[frame_idx]['X']), int(trajectory_dict[frame_idx]['Y'])
             cv2.circle(frame, (x, y), 8, (0, 255, 0), -1)
@@ -174,5 +178,9 @@ if uploaded_video:
     out.release()
     st.video(annotated_preview_path)
 
+    # -------------------------------
+    # Download & cleanup
+    # -------------------------------
     st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
     st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
+    shutil.rmtree(temp_dir)
