@@ -145,11 +145,9 @@ try:
     st.text(result.stdout)
 except subprocess.CalledProcessError as e:
     st.error("❌ TrackNet failed. Falling back to HSV detection...")
-    st.code(e.stderr + "
-" + e.stdout)  # ✅ Corrected
+    st.code(e.stderr + "\n" + e.stdout)  # ✅ Use escaped newline
     run_hsv_fallback(video_path, OUTPUT_VIDEO)
     tracknet_success = False
-
 
 # -------------------------------
 # 7️⃣ Show annotated video
