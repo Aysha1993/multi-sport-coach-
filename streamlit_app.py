@@ -1,46 +1,73 @@
 
 # ===============================
-# 🚀 Self-contained Streamlit + TrackNet Workflow
+# 🚀 Streamlit + GitHub-updated TrackNet Workflow
 # ===============================
 
 import os
 import shutil
 import subprocess
-import tempfile
-import streamlit as st
-import pandas as pd
-import numpy as np
-import cv2
-import matplotlib.pyplot as plt
-
-st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
-st.title("🎾 TrackNet Tennis Analyzer (Auto Clone + HSV Fallback)")
+from getpass import getpass
 
 # -------------------------------
-# 1️⃣ Setup TrackNet paths
+# 1️⃣ GitHub repo info
 # -------------------------------
-WORK_DIR = tempfile.mkdtemp()
-TRACKNET_DIR = os.path.join(WORK_DIR, "TrackNet")
-MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
+username = "Aysha1993"
+repo = "multi-sport-coach-"
+REPO_DIR = f"/content/{repo}"  # Or local repo path
+REPO_URL = f"https://github.com/{username}/{repo}.git"
 
-os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
+# -------------------------------
+# 2️⃣ Clone / update GitHub repo
+# -------------------------------
+if not os.path.exists(REPO_DIR):
+    print("Cloning your GitHub repo...")
+    subprocess.run(f"git clone {REPO_URL} {REPO_DIR}", shell=True, check=True)
+os.chdir(REPO_DIR)
+subprocess.run(f"git pull {REPO_URL} main --rebase", shell=True, check=True)
 
-# 2️⃣ Clone full TrackNet repo if missing
+# -------------------------------
+# 3️⃣ Clone / update full TrackNet repo inside your GitHub repo
+# -------------------------------
+TRACKNET_DIR = os.path.join(REPO_DIR, "TrackNet")
 if not os.path.exists(TRACKNET_DIR):
-    st.info("Cloning full TrackNet repo...")
+    print("Cloning full TrackNet repo into your GitHub repo...")
     subprocess.run(f"git clone https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True, check=True)
+else:
+    print("Updating existing TrackNet repo...")
+    os.chdir(TRACKNET_DIR)
+    subprocess.run("git pull https://github.com/yastrebksv/TrackNet.git main --rebase", shell=True)
 
-# 3️⃣ Download pretrained weights if missing
+# -------------------------------
+# 4️⃣ Download pretrained weights if missing
+# -------------------------------
+MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
+os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
 WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
 if not os.path.exists(MODEL_PATH):
-    st.info("Downloading pretrained TrackNet weights...")
+    print("Downloading pretrained TrackNet weights...")
     subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
-# 4️⃣ Optional: ensure infer_on_video.py exists
+# -------------------------------
+# 5️⃣ Download infer_on_video.py if missing
+# -------------------------------
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
 if not os.path.exists(INFER_PATH):
-    st.info("Downloading infer_on_video.py...")
+    print("Downloading infer_on_video.py...")
     subprocess.run(f"wget -O {INFER_PATH} https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py", shell=True)
+
+# -------------------------------
+# 6️⃣ Optional: Commit TrackNet / weights updates to GitHub
+# -------------------------------
+token = getpass("GitHub Personal Access Token: ")
+
+subprocess.run(f"git config --global user.email 'ayshuash95@gmail.com'", shell=True, check=True)
+subprocess.run(f"git config --global user.name 'Aysha1993'", shell=True, check=True)
+subprocess.run("git add TrackNet/models TrackNet/infer_on_video.py TrackNet", shell=True, check=True)
+subprocess.run("git commit -m 'Update TrackNet repo + pretrained weights' || echo 'No changes to commit'", shell=True)
+subprocess.run(f"git push https://{token}@github.com/{username}/{repo}.git main", shell=True, check=True)
+
+print("✅ Full TrackNet repo cloned/updated and pushed to your GitHub repo.")
+
 
 # -------------------------------
 # 5️⃣ Video upload
