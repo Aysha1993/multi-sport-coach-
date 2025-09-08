@@ -1,12 +1,11 @@
 
 # ===============================
-# 🚀 Full Streamlit App: TrackNet + HSV Fallback + CPU-safe
+# 🎾 Streamlit App: TrackNet Tennis Analyzer (CPU-safe + HSV Fallback)
 # ===============================
 import os
-import shutil
+import sys
 import subprocess
 import tempfile
-import sys
 import importlib
 import cv2
 import streamlit as st
@@ -35,7 +34,7 @@ st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
 st.title("🎾 TrackNet Tennis Analyzer (CPU-safe + HSV Fallback)")
 
 # -------------------------------
-# 🔧 HSV fallback util
+# 🔧 HSV fallback function
 # -------------------------------
 def run_hsv_fallback(video_path, out_path):
     cap = cv2.VideoCapture(video_path)
@@ -75,7 +74,7 @@ st.success(f"Uploaded video: {uploaded_video.name}")
 # -------------------------------
 TRACKNET_DIR = os.path.join(WORK_DIR, "TrackNet")
 if not os.path.exists(TRACKNET_DIR):
-    st.info("📥 Cloning full TrackNet repo...")
+    st.info("📥 Cloning TrackNet repo...")
     subprocess.run(
         f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}",
         shell=True,
@@ -107,7 +106,6 @@ if not os.path.exists(INFER_PATH):
 with open(INFER_PATH, "r") as f:
     code = f.read()
 
-# Force CPU device and model loading
 code = code.replace(
     'device = torch.device("cuda" if torch.cuda.is_available() else "cpu")',
     'device = torch.device("cpu")  # Forced CPU'
