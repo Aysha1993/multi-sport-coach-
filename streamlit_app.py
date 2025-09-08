@@ -72,13 +72,26 @@ OUTPUT_CSV = os.path.join(OUTPUT_DIR, "trajectory.csv")
 shutil.copy(video_path, os.path.join(TRACKNET_DIR, "video_input_720.mp4"))
 
 tracknet_success = True
+
 try:
-    st.info("Running TrackNet inference... ⏳")
-    infer_cmd = f"python {INFER_PATH} "                 f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                 f"--model_path {MODEL_PATH} "                 f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
-    subprocess.run(infer_cmd, shell=True, check=True)
-except Exception as e:
-    st.warning(f"TrackNet inference failed: {e}. Falling back to HSV detection.")
-    tracknet_success = False
+    cmd = [
+        "python", f"{tmp_dir}/TrackNet/infer_on_video.py",
+        "--video_path", video_input,
+        "--model_path", model_path,
+        "--video_out_path", annotated_output,
+        "--extrapolation"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    st.success("✅ TrackNet inference finished successfully!")
+    st.text(result.stdout)
+
+except subprocess.CalledProcessError as e:
+    st.error("❌ TrackNet failed. Full error log below:")
+    st.code(e.stderr)  # show actual TrackNet error
+    st.warning("Falling back to HSV detection...")
+    run_hsv_fallback(video_input, annotated_output)
+
+
 
 # -------------------------------
 # 7️⃣ Extract ball positions (HSV fallback if needed)
