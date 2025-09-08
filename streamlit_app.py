@@ -1,6 +1,6 @@
 
 # ===============================
-# 🚀 Full Colab / Streamlit Workflow (Runtime TrackNet + HSV Fallback)
+# 🚀 Full Colab / Streamlit Workflow (Runtime TrackNet + HSV Fallback + CPU patch)
 # ===============================
 import os, shutil, subprocess, tempfile, cv2, sys, importlib
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
@@ -19,6 +19,7 @@ def ensure_package(pkg, extra_args=[]):
 
 ensure_package("torch", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
 ensure_package("torchvision", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
+ensure_package("gdown")
 
 # -------------------------------
 # 0️⃣ Streamlit page setup
@@ -84,7 +85,7 @@ if not os.path.exists(MODEL_PATH):
     subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
 # -------------------------------
-# 5️⃣ Ensure infer_on_video.py exists
+# 5️⃣ Ensure infer_on_video.py exists + patch for CPU
 # -------------------------------
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
 if not os.path.exists(INFER_PATH):
@@ -94,17 +95,28 @@ if not os.path.exists(INFER_PATH):
         shell=True
     )
 
+# Patch for CPU-only environment
+with open(INFER_PATH, "r") as f:
+    code = f.read()
+if "map_location" not in code:
+    code = code.replace(
+        "torch.load(args.model_path, map_location=device)",
+        "torch.load(args.model_path, map_location='cpu')"
+    )
+    with open(INFER_PATH, "w") as f:
+        f.write(code)
+    st.info("🩹 Patched infer_on_video.py for CPU mode.")
+
 # -------------------------------
 # 6️⃣ Run TrackNet inference
 # -------------------------------
 OUTPUT_DIR = os.path.join(WORK_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
-shutil.copy(video_path, os.path.join(TRACKNET_DIR, "video_input_720.mp4"))
 
 tracknet_success = True
 try:
-    st.info("⚡ Running TrackNet inference...")
+    st.info("⚡ Running TrackNet inference... (CPU mode)")
     cmd = [
         sys.executable, INFER_PATH,
         "--video_path", video_path,
@@ -117,7 +129,7 @@ try:
     st.text(result.stdout)
 except subprocess.CalledProcessError as e:
     st.error("❌ TrackNet failed. Full error log below:")
-    st.code(e.stderr)
+    st.code(e.stderr + "\n" + e.stdout)
     st.warning("⚠️ Falling back to HSV detection...")
     run_hsv_fallback(video_path, OUTPUT_VIDEO)
     tracknet_success = False
