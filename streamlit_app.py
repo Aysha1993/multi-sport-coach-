@@ -77,7 +77,7 @@ try:
     infer_cmd = f"python {INFER_PATH} "                 f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                 f"--model_path {MODEL_PATH} "                 f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
     subprocess.run(infer_cmd, shell=True, check=True)
 except Exception as e:
-    st.warning("TrackNet inference failed: {e}
+    st.warning(f"TrackNet inference failed: {e}
 Falling back to HSV detection.")
     tracknet_success = False
 
