@@ -55,7 +55,7 @@ if uploaded_video:
 
     # Extract ball positions (HSV fallback)
     cap = cv2.VideoCapture(OUTPUT_VIDEO if tracknet_success and os.path.exists(OUTPUT_VIDEO) else video_path)
-    st.success(f"Total frames in input video:": {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
+    st.success(f"Total frames in input video: {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
     
     positions = []
     debug_frames = 5  # show first 5 mask previews
@@ -132,7 +132,7 @@ if uploaded_video:
     st.subheader("🎥 Video Preview")
     annotated_preview_path = os.path.join(temp_dir, "annotated_preview.mp4")
     cap = cv2.VideoCapture(video_path)
-    st.success(f"Total frames in output video:": {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
+    st.success(f"Total frames in output video: {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
