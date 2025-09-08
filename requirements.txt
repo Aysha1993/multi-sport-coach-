@@ -1,1 +1,20 @@
 
+streamlit
+numpy>=1.21.0
+scikit-learn>=1.0
+torch
+torchvision
+transformers
+tensorflow
+tensorflow_hub
+opencv-python-headless
+pandas
+matplotlib
+joblib
+ffmpeg-python
+tqdm
+seaborn
+lightgbm
+imbalanced-learn
+plotly
+gdown
