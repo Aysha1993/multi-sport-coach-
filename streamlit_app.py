@@ -10,7 +10,7 @@ import subprocess
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
-st.title("🎾 TrackNet Tennis Analyzer with HSV Fallback + Debug")
+st.title("🎾 TrackNet Tennis Analyzer (TrackNet + HSV Fallback)")
 
 uploaded_video = st.file_uploader("Upload Tennis Video (MP4)", type=["mp4"])
 
@@ -26,33 +26,24 @@ if uploaded_video:
     MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
     os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
 
-    # -------------------------------
-    # Clone TrackNet repo if missing
-    # -------------------------------
+    # 1️⃣ Clone full TrackNet repo if missing
     if not os.path.exists(TRACKNET_DIR):
-        st.info("Cloning TrackNet repo...")
+        st.info("Cloning full TrackNet repo...")
         subprocess.run(f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True)
 
-    # -------------------------------
-    # Ensure infer_on_video.py exists
-    # -------------------------------
-    infer_file = os.path.join(TRACKNET_DIR, "infer_on_video.py")
-    if not os.path.exists(infer_file):
-        st.info("infer_on_video.py missing. Downloading automatically...")
-        # Download directly from TrackNet GitHub repo
-        infer_url = "https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py"
-        subprocess.run(f"wget {infer_url} -O {infer_file}", shell=True)
-
-
-    
-
-    # Download pretrained weights if missing
+    # 2️⃣ Download pretrained weights if missing
     WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
     if not os.path.exists(MODEL_PATH):
-        st.info("Downloading pretrained weights...")
+        st.info("Downloading pretrained TrackNet weights...")
         subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True)
 
-    # Run TrackNet inference
+    # 3️⃣ Optional: Download infer_on_video.py if missing
+    infer_path = os.path.join(TRACKNET_DIR, "infer_on_video.py")
+    if not os.path.exists(infer_path):
+        st.info("Downloading infer_on_video.py...")
+        subprocess.run(f"wget -O {infer_path} https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py", shell=True)
+
+    # 4️⃣ Run TrackNet inference
     OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
@@ -62,18 +53,18 @@ if uploaded_video:
     tracknet_success = True
     try:
         st.info("Running TrackNet inference... ⏳")
-        infer_cmd = f"python {os.path.join(TRACKNET_DIR, 'infer_on_video.py')} "                     f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                     f"--model_path {MODEL_PATH} "                     f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
+        infer_cmd = f"python {infer_path} "                     f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                     f"--model_path {MODEL_PATH} "                     f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
         subprocess.run(infer_cmd, shell=True, check=True)
     except:
-        st.warning("TrackNet inference failed. Using HSV fallback only.")
+        st.warning("TrackNet inference failed. Falling back to HSV ball detection.")
         tracknet_success = False
 
-    # Extract ball positions (HSV fallback)
+    # 5️⃣ Extract ball positions
     cap = cv2.VideoCapture(OUTPUT_VIDEO if tracknet_success and os.path.exists(OUTPUT_VIDEO) else video_path)
-    st.success(f"Total frames in input video: {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
-    
+    st.success(f"Total frames in video: {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
+
     positions = []
-    debug_frames = 5  # show first 5 mask previews
+    debug_frames = 5  # preview first few mask frames
 
     while True:
         ret, frame = cap.read()
@@ -81,7 +72,7 @@ if uploaded_video:
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Red, Yellow, Orange tennis balls
+        # Red/Yellow/Orange tennis ball HSV ranges
         mask_red1 = cv2.inRange(hsv, np.array([0,60,60]), np.array([10,255,255]))
         mask_red2 = cv2.inRange(hsv, np.array([170,60,60]), np.array([180,255,255]))
         mask_yellow = cv2.inRange(hsv, np.array([20,80,80]), np.array([40,255,255]))
@@ -95,16 +86,16 @@ if uploaded_video:
             frame_number = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             positions.append([frame_number, x, y])
 
-        # Debug preview
+        # Debug first few frames
         if len(positions) <= debug_frames:
             st.image(cv2.cvtColor(cv2.bitwise_and(frame, frame, mask=mask), cv2.COLOR_BGR2RGB),
-                     caption=f"Frame {int(cap.get(cv2.CAP_PROP_POS_FRAMES))} HSV Mask", use_container_width=True)
+                     caption=f"Frame {int(cap.get(cv2.CAP_PROP_POS_FRAMES))} HSV Mask", use_column_width=True)
 
     cap.release()
     trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
     trajectory_df.to_csv(OUTPUT_CSV, index=False)
 
-    # Compute analytics
+    # 6️⃣ Compute analytics
     if not trajectory_df.empty:
         trajectory_df['dx'] = trajectory_df['X'].diff().fillna(0)
         trajectory_df['dy'] = trajectory_df['Y'].diff().fillna(0)
@@ -126,14 +117,14 @@ if uploaded_video:
     st.subheader("🎯 Analytics Metrics")
     st.json(analytics_metrics)
 
-    # Feedback
+    # 7️⃣ Feedback
     feedback = f"Total Frames: {analytics_metrics['total_frames']}\n"                f"Average Speed: {analytics_metrics['average_speed']:.2f}\n"                f"Max Speed: {analytics_metrics['max_speed']:.2f}\n"                f"Total Distance: {analytics_metrics['total_distance']:.2f}\n"                f"Number of Bounces: {analytics_metrics['num_bounces']}\n\n"
     feedback += "⚠️ No bounces detected. Check ball visibility and lighting." if analytics_metrics['num_bounces']==0 else "✅ Ball trajectory and bounces detected successfully."
 
     st.subheader("📝 Feedback")
     st.text_area("Feedback:", feedback, height=200)
 
-    # Trajectory plot
+    # 8️⃣ Trajectory plot
     st.subheader("📊 Ball Trajectory")
     fig, ax = plt.subplots(figsize=(10,6))
     ax.plot(trajectory_df['X'], trajectory_df['Y'], '-o', markersize=2)
@@ -143,7 +134,7 @@ if uploaded_video:
     ax.set_title("Tennis Ball Trajectory")
     st.pyplot(fig)
 
-    # Annotated video preview
+    # 9️⃣ Annotated video preview
     st.subheader("🎥 Video Preview")
     annotated_preview_path = os.path.join(temp_dir, "annotated_preview.mp4")
     cap = cv2.VideoCapture(video_path)
@@ -168,7 +159,7 @@ if uploaded_video:
     out.release()
     st.video(annotated_preview_path)
 
-    # Downloads
+    # 10️⃣ Downloads
     st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
     st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
     shutil.rmtree(temp_dir)
