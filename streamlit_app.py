@@ -1,44 +1,17 @@
 
 import streamlit as st
 import os
-import subprocess
-import tempfile
 import pandas as pd
 import numpy as np
 import cv2
-import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import tempfile
+import shutil
+import subprocess
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
-st.title("🎾 TrackNet Tennis Analyzer with TrackNet + HSV Fallback + Tiny LLM Feedback")
+st.title("🎾 TrackNet Tennis Analyzer with Video Preview")
 
-# -------------------------------
-# Cached lightweight LLM (tiny T5)
-# -------------------------------
-@st.cache_resource
-def load_llm():
-    tokenizer = AutoTokenizer.from_pretrained("sshleifer/tiny-t5")
-    model = AutoModelForSeq2SeqLM.from_pretrained("sshleifer/tiny-t5")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
-    return tokenizer, model, device
-
-tokenizer, model, device = load_llm()
-
-def chat_generate(prompt: str, max_new_tokens=80):
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    with torch.inference_mode():
-        output = model.generate(**inputs, max_new_tokens=max_new_tokens)
-    return tokenizer.decode(output[0], skip_special_tokens=True)
-
-def generate_analytics_feedback(metrics):
-    prompt = f"Analyze these tennis tracking metrics in one short paragraph: {metrics}"
-    return chat_generate(prompt)
-
-# -------------------------------
-# Upload video
-# -------------------------------
 uploaded_video = st.file_uploader("Upload Tennis Video (MP4)", type=["mp4"])
 
 if uploaded_video:
@@ -48,71 +21,55 @@ if uploaded_video:
         f.write(uploaded_video.read())
     st.success(f"Uploaded video: {uploaded_video.name}")
 
-    # ===============================
-    # TrackNet repo + weights
-    # ===============================
+    # TrackNet repo & weights
     TRACKNET_DIR = os.path.join(temp_dir, "TrackNet")
     MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
     os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
 
     if not os.path.exists(TRACKNET_DIR):
-        st.info("Cloning TrackNet repository...")
+        st.info("Cloning TrackNet repo...")
         subprocess.run(f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True)
 
+    WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
     if not os.path.exists(MODEL_PATH):
-        st.info("Downloading pretrained TrackNet weights...")
-        subprocess.run(f"gdown https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl -O {MODEL_PATH}", shell=True)
+        st.info("Downloading pretrained weights...")
+        subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True)
 
-    # ===============================
-    # Run TrackNet inference
-    # ===============================
-    st.info("Running TrackNet inference... This may take a while ⏳")
+    # Run inference
+    st.info("Running TrackNet inference... ⏳")
     OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.mp4")
+    OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
     OUTPUT_CSV = os.path.join(OUTPUT_DIR, "trajectory.csv")
+    shutil.copy(video_path, os.path.join(TRACKNET_DIR, "video_input_720.mp4"))
 
-    subprocess.run(f"python {os.path.join(TRACKNET_DIR,'infer_on_video.py')} "
-                   f"--video_path {video_path} "
-                   f"--weights_path {MODEL_PATH} "
-                   f"--output_video_path {OUTPUT_VIDEO} "
-                   f"--output_csv_path {OUTPUT_CSV} "
-                   f"--visualize", shell=True)
+    infer_cmd = f"python {os.path.join(TRACKNET_DIR, 'infer_on_video.py')} "                 f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                 f"--model_path {MODEL_PATH} "                 f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
+    subprocess.run(infer_cmd, shell=True)
 
-    # ===============================
-    # Fallback HSV tracker if TrackNet fails
-    # ===============================
+    # Extract trajectory CSV
     if not os.path.exists(OUTPUT_CSV):
-        st.warning("TrackNet failed, using fallback HSV tracker...")
-        cap = cv2.VideoCapture(video_path)
-        positions, frame_idx = [], 0
-        last_x, last_y = None, None
+        st.info("CSV missing, extracting ball positions...")
+        cap = cv2.VideoCapture(OUTPUT_VIDEO)
+        positions = []
         while True:
             ret, frame = cap.read()
             if not ret: break
-            small = cv2.resize(frame, (640, 360))
-            hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
-            mask = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([35, 255, 255]))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3),np.uint8))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5,5),np.uint8))
+            frame = cv2.resize(frame, (640, 360))
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            mask1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
+            mask2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
+            mask = mask1 + mask2
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 c = max(contours, key=cv2.contourArea)
-                if cv2.contourArea(c) > 10:
-                    (x, y), _ = cv2.minEnclosingCircle(c)
-                    last_x = int(x * frame.shape[1]/640)
-                    last_y = int(y * frame.shape[0]/360)
-            positions.append([frame_idx, last_x, last_y])
-            frame_idx += 1
+                (x, y), _ = cv2.minEnclosingCircle(c)
+                positions.append([cap.get(cv2.CAP_PROP_POS_FRAMES), x, y])
         cap.release()
         trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
         trajectory_df.to_csv(OUTPUT_CSV, index=False)
+    else:
+        trajectory_df = pd.read_csv(OUTPUT_CSV)
 
-    # ===============================
-    # Compute analytics + LLM feedback
-    # ===============================
-    trajectory_df = pd.read_csv(OUTPUT_CSV)
-    trajectory_df = trajectory_df.dropna()
     trajectory_df['dx'] = trajectory_df['X'].diff().fillna(0)
     trajectory_df['dy'] = trajectory_df['Y'].diff().fillna(0)
     trajectory_df['distance'] = np.sqrt(trajectory_df['dx']**2 + trajectory_df['dy']**2)
@@ -122,20 +79,63 @@ if uploaded_video:
 
     analytics_metrics = {
         "total_frames": len(trajectory_df),
-        "average_speed": float(trajectory_df['speed'].mean()),
-        "max_speed": float(trajectory_df['speed'].max()),
-        "total_distance": float(trajectory_df['distance'].sum()),
+        "average_speed": trajectory_df['speed'].mean(),
+        "max_speed": trajectory_df['speed'].max(),
+        "total_distance": trajectory_df['distance'].sum(),
         "num_bounces": int(trajectory_df['bounce'].sum())
     }
 
     st.subheader("🎯 Analytics Metrics")
     st.json(analytics_metrics)
 
-    st.subheader("🤖 LLM Feedback")
-    feedback = generate_analytics_feedback(analytics_metrics)
+    # Basic feedback
+    feedback = f"Total Frames: {analytics_metrics['total_frames']}\n"                f"Average Speed: {analytics_metrics['average_speed']:.2f}\n"                f"Max Speed: {analytics_metrics['max_speed']:.2f}\n"                f"Total Distance: {analytics_metrics['total_distance']:.2f}\n"                f"Number of Bounces: {analytics_metrics['num_bounces']}\n\n"
+
+    if analytics_metrics['num_bounces'] == 0:
+        feedback += "⚠️ No bounces detected. Check ball visibility and lighting."
+    else:
+        feedback += "✅ Ball trajectory and bounces detected successfully."
+
+    st.subheader("📝 Feedback")
     st.text_area("Feedback:", feedback, height=200)
 
-    st.subheader("⬇️ Downloads")
-    st.download_button("Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
-    if os.path.exists(OUTPUT_VIDEO):
-        st.video(OUTPUT_VIDEO)
+    # Ball Trajectory plot
+    st.subheader("📊 Ball Trajectory")
+    fig, ax = plt.subplots(figsize=(10,6))
+    ax.plot(trajectory_df['X'], trajectory_df['Y'], '-o', markersize=2)
+    ax.invert_yaxis()
+    ax.set_xlabel("X Position")
+    ax.set_ylabel("Y Position")
+    ax.set_title("Tennis Ball Trajectory")
+    st.pyplot(fig)
+
+    # Video preview with ball positions
+    st.subheader("🎥 Video Preview")
+    annotated_preview_path = os.path.join(temp_dir, "annotated_preview.mp4")
+    cap = cv2.VideoCapture(video_path)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    out = cv2.VideoWriter(annotated_preview_path, fourcc, fps, (width, height))
+    trajectory_dict = trajectory_df.set_index('Frame').to_dict(orient='index')
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+        frame = cv2.resize(frame, (640, 360))
+        if frame_idx in trajectory_dict:
+            x, y = int(trajectory_dict[frame_idx]['X']), int(trajectory_dict[frame_idx]['Y'])
+            cv2.circle(frame, (x, y), 8, (0, 255, 0), -1)
+            cv2.putText(frame, f"({x},{y})", (x+10, y-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        out.write(frame)
+        frame_idx += 1
+    cap.release()
+    out.release()
+    st.video(annotated_preview_path)
+
+    # Downloads
+    st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
+    st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
+    shutil.rmtree(temp_dir)
