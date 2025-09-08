@@ -7,13 +7,15 @@ import numpy as np, pandas as pd, matplotlib.pyplot as plt
 import streamlit as st
 
 # -------------------------------
-# 🔧 Ensure torch is installed (works in Streamlit Cloud)
+# 🔧 Ensure torch + torchvision installed (Cloud + Colab compatible)
 # -------------------------------
 def ensure_package(pkg, extra_args=[]):
     try:
         importlib.import_module(pkg)
     except ImportError:
+        st.warning(f"📦 Installing missing package: {pkg} ... this may take a while ⏳")
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg] + extra_args)
+        importlib.invalidate_caches()
 
 ensure_package("torch", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
 ensure_package("torchvision", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
@@ -65,7 +67,11 @@ st.success(f"Uploaded video: {uploaded_video.name}")
 TRACKNET_DIR = os.path.join(WORK_DIR, "TrackNet")
 if not os.path.exists(TRACKNET_DIR):
     st.info("📥 Cloning full TrackNet repo...")
-    subprocess.run(f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True, check=True)
+    subprocess.run(
+        f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}",
+        shell=True,
+        check=True
+    )
 
 # -------------------------------
 # 4️⃣ Download pretrained weights if missing
@@ -83,7 +89,10 @@ if not os.path.exists(MODEL_PATH):
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
 if not os.path.exists(INFER_PATH):
     st.info("📥 Downloading infer_on_video.py...")
-    subprocess.run(f"wget -O {INFER_PATH} https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py", shell=True)
+    subprocess.run(
+        f"wget -O {INFER_PATH} https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py",
+        shell=True
+    )
 
 # -------------------------------
 # 6️⃣ Run TrackNet inference
@@ -97,7 +106,7 @@ tracknet_success = True
 try:
     st.info("⚡ Running TrackNet inference...")
     cmd = [
-        "python", INFER_PATH,
+        sys.executable, INFER_PATH,
         "--video_path", video_path,
         "--model_path", MODEL_PATH,
         "--video_out_path", OUTPUT_VIDEO,
