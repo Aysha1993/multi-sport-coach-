@@ -33,7 +33,7 @@ def chat_generate(prompt: str, max_new_tokens=80):
     return tokenizer.decode(output[0], skip_special_tokens=True)
 
 def generate_analytics_feedback(metrics):
-    prompt = f"Analyze these tennis tracking metrics in one paragraph: {metrics}"
+    prompt = f"Analyze these tennis tracking metrics in one short paragraph: {metrics}"
     return chat_generate(prompt)
 
 # -------------------------------
@@ -49,7 +49,7 @@ if uploaded_video:
     st.success(f"Uploaded video: {uploaded_video.name}")
 
     # ===============================
-    # TrackNet inference
+    # TrackNet repo + weights
     # ===============================
     TRACKNET_DIR = os.path.join(temp_dir, "TrackNet")
     MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
@@ -58,6 +58,10 @@ if uploaded_video:
     if not os.path.exists(TRACKNET_DIR):
         st.info("Cloning TrackNet repository...")
         subprocess.run(f"git clone --depth 1 https://github.com/yastrebksv/TrackNet.git {TRACKNET_DIR}", shell=True)
+
+    if not os.path.exists(MODEL_PATH):
+        st.info("Downloading pretrained TrackNet weights...")
+        subprocess.run(f"gdown https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl -O {MODEL_PATH}", shell=True)
 
     # ===============================
     # Run TrackNet inference
@@ -133,4 +137,5 @@ if uploaded_video:
 
     st.subheader("⬇️ Downloads")
     st.download_button("Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
-    st.video(OUTPUT_VIDEO)
+    if os.path.exists(OUTPUT_VIDEO):
+        st.video(OUTPUT_VIDEO)
