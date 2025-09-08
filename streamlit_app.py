@@ -92,36 +92,56 @@ if not os.path.exists(MODEL_PATH):
     subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
 # -------------------------------
-# 5️⃣ Ensure infer_on_video.py exists + CPU patch
+# 5️⃣ Overwrite infer_on_video.py with CPU-safe version
 # -------------------------------
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
-if not os.path.exists(INFER_PATH):
-    st.info("📥 Downloading infer_on_video.py...")
-    subprocess.run(
-        f"wget -O {INFER_PATH} https://raw.githubusercontent.com/yastrebksv/TrackNet/master/infer_on_video.py",
-        shell=True
-    )
+infer_code = """import argparse
+import torch
+import cv2
+import numpy as np
+from model import TrackNet
 
-# Patch infer_on_video.py for CPU-only
-with open(INFER_PATH, "r") as f:
-    code = f.read()
+parser = argparse.ArgumentParser()
+parser.add_argument('--video_path', required=True)
+parser.add_argument('--model_path', required=True)
+parser.add_argument('--video_out_path', required=True)
+parser.add_argument('--extrapolation', action='store_true')
+args = parser.parse_args()
 
-code = code.replace(
-    'device = torch.device("cuda" if torch.cuda.is_available() else "cpu")',
-    'device = torch.device("cpu")  # Forced CPU'
-)
-code = code.replace(
-    'torch.load(args.model_path, map_location=device)',
-    'torch.load(args.model_path, map_location="cpu")  # Forced CPU'
-)
-code = code.replace(
-    'model = model.to(device)',
-    'model = model.to("cpu")  # Forced CPU'
-)
+device = torch.device('cpu')  # Forced CPU
+model = TrackNet()
+model.load_state_dict(torch.load(args.model_path, map_location='cpu'))  # Forced CPU
+model = model.to(device)  # Forced CPU
+model.eval()
 
+cap = cv2.VideoCapture(args.video_path)
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS)
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (frame_width, frame_height))
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+    input_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    input_tensor = torch.from_numpy(input_frame).float().permute(2,0,1).unsqueeze(0)/255.0
+    input_tensor = input_tensor.to(device)
+    with torch.no_grad():
+        output = model(input_tensor)
+    heatmap = output.squeeze().cpu().numpy()
+    y, x = np.unravel_index(np.argmax(heatmap), heatmap.shape)
+    cv2.circle(frame, (x, y), 5, (0,0,255), -1)
+    out.write(frame)
+
+cap.release()
+out.release()
+print("✅ Inference finished. Output saved at:", args.video_out_path)
+"""
 with open(INFER_PATH, "w") as f:
-    f.write(code)
-st.info("🩹 Patched infer_on_video.py for CPU mode.")
+    f.write(infer_code)
+st.info("🩹 infer_on_video.py overwritten with fully CPU-safe version.")
 
 # -------------------------------
 # 6️⃣ Run TrackNet inference
@@ -145,7 +165,7 @@ try:
     st.text(result.stdout)
 except subprocess.CalledProcessError as e:
     st.error("❌ TrackNet failed. Falling back to HSV detection...")
-    st.code(e.stderr + "\n" + e.stdout)  # ✅ Use escaped newline
+    st.code(e.stderr + "\n" + e.stdout)
     run_hsv_fallback(video_path, OUTPUT_VIDEO)
     tracknet_success = False
 
