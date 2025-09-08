@@ -7,7 +7,6 @@ import numpy as np
 import cv2
 import tempfile
 import shutil
-import subprocess
 import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -52,29 +51,36 @@ if uploaded_video:
     st.success(f"Uploaded video: {uploaded_video.name}")
 
     # -------------------------------
-    # TrackNet lightweight inference
+    # TrackNet optimized inference
     # -------------------------------
-    frame_skip = 3  # process every 3rd frame
     cap = cv2.VideoCapture(video_path)
     positions = []
     frame_idx = 0
+    last_x, last_y = 0, 0  # keep last detected position if ball not found
+
     while True:
         ret, frame = cap.read()
         if not ret: break
-        if frame_idx % frame_skip == 0:
-            small_frame = cv2.resize(frame, (640,360))
-            hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
-            mask1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
-            mask2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
-            mask = mask1 + mask2
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                c = max(contours, key=cv2.contourArea)
-                (x, y), _ = cv2.minEnclosingCircle(c)
-                x = int(x * frame.shape[1]/640)
-                y = int(y * frame.shape[0]/360)
-                positions.append([frame_idx, x, y])
+
+        # Resize for RAM efficiency
+        small_frame = cv2.resize(frame, (640,360))
+        hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
+
+        # Yellow tennis ball detection
+        lower_yellow = np.array([20,100,100])
+        upper_yellow = np.array([35,255,255])
+        mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            (x, y), _ = cv2.minEnclosingCircle(c)
+            last_x = int(x * frame.shape[1]/640)
+            last_y = int(y * frame.shape[0]/360)
+
+        positions.append([frame_idx, last_x, last_y])
         frame_idx += 1
+
     cap.release()
 
     OUTPUT_DIR = os.path.join(temp_dir, "output")
@@ -131,12 +137,11 @@ if uploaded_video:
     while True:
         ret, frame = cap.read()
         if not ret: break
-        if frame_idx % frame_skip == 0:
-            frame = cv2.resize(frame, (640,360))
-            if frame_idx in trajectory_dict:
-                x, y = int(trajectory_dict[frame_idx]['X']), int(trajectory_dict[frame_idx]['Y'])
-                cv2.circle(frame, (x, y), 6, (0,255,0), -1)
-            out.write(frame)
+        frame = cv2.resize(frame, (640,360))
+        if frame_idx in trajectory_dict:
+            x, y = int(trajectory_dict[frame_idx]['X']), int(trajectory_dict[frame_idx]['Y'])
+            cv2.circle(frame, (x, y), 6, (0,255,0), -1)
+        out.write(frame)
         frame_idx += 1
     cap.release()
     out.release()
