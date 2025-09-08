@@ -84,6 +84,9 @@ if not os.path.exists(MODEL_PATH):
     st.info("📥 Downloading pretrained TrackNet weights...")
     subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
+
+
+# Patch for CPU-only environment
 # -------------------------------
 # 5️⃣ Ensure infer_on_video.py exists + patch for CPU
 # -------------------------------
@@ -95,17 +98,21 @@ if not os.path.exists(INFER_PATH):
         shell=True
     )
 
-# Patch for CPU-only environment
+# Force CPU patch
 with open(INFER_PATH, "r") as f:
     code = f.read()
-if "map_location" not in code:
-    code = code.replace(
-        "torch.load(args.model_path, map_location=device)",
-        "torch.load(args.model_path, map_location='cpu')"
-    )
+patched_code = code.replace(
+    "torch.load(args.model_path, map_location=device)",
+    "torch.load(args.model_path, map_location='cpu')"
+).replace(
+    "map_location=device",
+    "map_location='cpu'"
+)
+if patched_code != code:
     with open(INFER_PATH, "w") as f:
-        f.write(code)
-    st.info("🩹 Patched infer_on_video.py for CPU mode.")
+        f.write(patched_code)
+    st.info("🩹 Patched infer_on_video.py → forced CPU mode.")
+
 
 # -------------------------------
 # 6️⃣ Run TrackNet inference
