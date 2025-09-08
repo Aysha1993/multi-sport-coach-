@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
-st.title("🎾 TrackNet Tennis Analyzer with Lightweight LLM Feedback")
+st.title("🎾 TrackNet Tennis Analyzer with Robust HSV Tracker")
 
 # -------------------------------
 # Cached lightweight LLM (T5-small)
@@ -51,44 +51,50 @@ if uploaded_video:
     st.success(f"Uploaded video: {uploaded_video.name}")
 
     # -------------------------------
-    # TrackNet optimized inference
+    # Optimized HSV tracker
     # -------------------------------
     cap = cv2.VideoCapture(video_path)
     positions = []
     frame_idx = 0
-    last_x, last_y = 0, 0  # keep last detected position if ball not found
+    last_x, last_y = 0, 0
 
     while True:
         ret, frame = cap.read()
         if not ret: break
 
-        # Resize for RAM efficiency
         small_frame = cv2.resize(frame, (640,360))
         hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
 
-        # Yellow tennis ball detection
-        lower_yellow = np.array([20,100,100])
-        upper_yellow = np.array([35,255,255])
+        # Robust yellow detection with morphology
+        lower_yellow = np.array([20, 100, 100])
+        upper_yellow = np.array([35, 255, 255])
         mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3),np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5,5),np.uint8))
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             c = max(contours, key=cv2.contourArea)
-            (x, y), _ = cv2.minEnclosingCircle(c)
-            last_x = int(x * frame.shape[1]/640)
-            last_y = int(y * frame.shape[0]/360)
+            if cv2.contourArea(c) > 10:  # ignore tiny noise
+                (x, y), radius = cv2.minEnclosingCircle(c)
+                last_x = int(x * frame.shape[1]/640)
+                last_y = int(y * frame.shape[0]/360)
 
         positions.append([frame_idx, last_x, last_y])
         frame_idx += 1
 
     cap.release()
 
+    # -------------------------------
+    # Save trajectory CSV
+    # -------------------------------
     OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     OUTPUT_CSV = os.path.join(OUTPUT_DIR, "trajectory.csv")
     trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
     trajectory_df.to_csv(OUTPUT_CSV, index=False)
 
+    # Compute analytics
     trajectory_df['dx'] = trajectory_df['X'].diff().fillna(0)
     trajectory_df['dy'] = trajectory_df['Y'].diff().fillna(0)
     trajectory_df['distance'] = np.sqrt(trajectory_df['dx']**2 + trajectory_df['dy']**2)
@@ -112,7 +118,7 @@ if uploaded_video:
     st.text_area("Feedback:", feedback, height=250)
 
     # -------------------------------
-    # Ball trajectory plot
+    # Trajectory plot
     # -------------------------------
     st.subheader("📊 Ball Trajectory")
     fig, ax = plt.subplots(figsize=(10,6))
@@ -133,6 +139,7 @@ if uploaded_video:
     fps = cap.get(cv2.CAP_PROP_FPS)
     out = cv2.VideoWriter(annotated_preview_path, fourcc, fps, (640,360))
     trajectory_dict = trajectory_df.set_index('Frame').to_dict(orient='index')
+
     frame_idx = 0
     while True:
         ret, frame = cap.read()
@@ -143,12 +150,13 @@ if uploaded_video:
             cv2.circle(frame, (x, y), 6, (0,255,0), -1)
         out.write(frame)
         frame_idx += 1
+
     cap.release()
     out.release()
     st.video(annotated_preview_path)
 
     # -------------------------------
-    # Download & cleanup
+    # Download CSV & Video
     # -------------------------------
     st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
     st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
