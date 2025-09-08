@@ -80,33 +80,24 @@ if uploaded_video:
         subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True)
 
     # -------------------------------
-    # Run inference
+    # Run lightweight inference
     # -------------------------------
     st.info("Running TrackNet inference... ⏳")
     OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
     OUTPUT_CSV = os.path.join(OUTPUT_DIR, "trajectory.csv")
-    shutil.copy(video_path, os.path.join(TRACKNET_DIR, "video_input_720.mp4"))
-
-    infer_cmd = f"python {os.path.join(TRACKNET_DIR, 'infer_on_video.py')} "                 f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                 f"--model_path {MODEL_PATH} "                 f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
-    subprocess.run(infer_cmd, shell=True)
-
-    # -------------------------------
-    # Extract trajectory CSV
-    # -------------------------------
-    if not os.path.exists(OUTPUT_CSV):
-        st.info("CSV missing, extracting ball positions...")
-        cap = cv2.VideoCapture(OUTPUT_VIDEO)
-        positions = []
-        while True:
-            ret, frame = cap.read()
-            if not ret: break
-            # -------------------------------
-            # Downscale frame to reduce RAM
-            # -------------------------------
-            frame = cv2.resize(frame, (640, 360))
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    
+    frame_skip = 3  # process every 3rd frame
+    cap = cv2.VideoCapture(video_path)
+    positions = []
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+        if frame_idx % frame_skip == 0:
+            small_frame = cv2.resize(frame, (640,360))
+            hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
             mask1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
             mask2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
             mask = mask1 + mask2
@@ -114,12 +105,14 @@ if uploaded_video:
             if contours:
                 c = max(contours, key=cv2.contourArea)
                 (x, y), _ = cv2.minEnclosingCircle(c)
-                positions.append([cap.get(cv2.CAP_PROP_POS_FRAMES), x, y])
-        cap.release()
-        trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
-        trajectory_df.to_csv(OUTPUT_CSV, index=False)
-    else:
-        trajectory_df = pd.read_csv(OUTPUT_CSV)
+                x = int(x * frame.shape[1]/640)
+                y = int(y * frame.shape[0]/360)
+                positions.append([frame_idx, x, y])
+        frame_idx += 1
+    cap.release()
+
+    trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
+    trajectory_df.to_csv(OUTPUT_CSV, index=False)
 
     trajectory_df['dx'] = trajectory_df['X'].diff().fillna(0)
     trajectory_df['dy'] = trajectory_df['Y'].diff().fillna(0)
@@ -165,22 +158,19 @@ if uploaded_video:
     while True:
         ret, frame = cap.read()
         if not ret: break
-        # Downscale for RAM efficiency
-        frame = cv2.resize(frame, (640, 360))
         if frame_idx in trajectory_dict:
             x, y = int(trajectory_dict[frame_idx]['X']), int(trajectory_dict[frame_idx]['Y'])
-            cv2.circle(frame, (x, y), 8, (0, 255, 0), -1)
+            cv2.circle(frame, (x, y), 8, (0,255,0), -1)
             cv2.putText(frame, f"({x},{y})", (x+10, y-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
         out.write(frame)
         frame_idx += 1
     cap.release()
     out.release()
     st.video(annotated_preview_path)
 
-    # -------------------------------
-    # Download & cleanup
-    # -------------------------------
     st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
     st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
+    
+    # Cleanup temp folder
     shutil.rmtree(temp_dir)
