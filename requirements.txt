@@ -1,15 +1,10 @@
 
 streamlit
-numpy>=1.21.0
-scikit-learn>=1.0
+numpy
+scikit-learn
 torch
-torchvision
 transformers
 opencv-python-headless
 pandas
 matplotlib
-joblib
-ffmpeg-python
-tqdm
-seaborn
 gdown
