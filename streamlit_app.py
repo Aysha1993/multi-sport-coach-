@@ -58,6 +58,7 @@ if not os.path.exists(INFER_PATH):
 # -------------------------------
 # 6️⃣ Optional: Commit TrackNet / weights updates to GitHub
 # -------------------------------
+
 token = getpass("GitHub Personal Access Token: ")
 
 subprocess.run(f"git config --global user.email 'ayshuash95@gmail.com'", shell=True, check=True)
