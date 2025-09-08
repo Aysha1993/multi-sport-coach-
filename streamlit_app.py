@@ -56,14 +56,19 @@ if uploaded_video:
             if not ret: break
             frame = cv2.resize(frame, (640, 360))
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            mask1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
-            mask2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
-            mask = mask1 + mask2
+            
+            # Detect red and yellow tennis balls
+            mask_red1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
+            mask_red2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
+            mask_yellow = cv2.inRange(hsv, np.array([20,100,100]), np.array([35,255,255]))
+            mask = mask_red1 + mask_red2 + mask_yellow
+            
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 c = max(contours, key=cv2.contourArea)
                 (x, y), _ = cv2.minEnclosingCircle(c)
-                positions.append([cap.get(cv2.CAP_PROP_POS_FRAMES), x, y])
+                frame_number = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+                positions.append([frame_number, x, y])
         cap.release()
         trajectory_df = pd.DataFrame(positions, columns=['Frame','X','Y'])
         trajectory_df.to_csv(OUTPUT_CSV, index=False)
