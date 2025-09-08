@@ -21,7 +21,6 @@ if uploaded_video:
         f.write(uploaded_video.read())
     st.success(f"Uploaded video: {uploaded_video.name}")
 
-    # TrackNet repo & weights
     TRACKNET_DIR = os.path.join(temp_dir, "TrackNet")
     MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
     os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
@@ -35,7 +34,6 @@ if uploaded_video:
         st.info("Downloading pretrained weights...")
         subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True)
 
-    # Run inference
     st.info("Running TrackNet inference... ⏳")
     OUTPUT_DIR = os.path.join(temp_dir, "output")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -46,7 +44,6 @@ if uploaded_video:
     infer_cmd = f"python {os.path.join(TRACKNET_DIR, 'infer_on_video.py')} "                 f"--video_path {os.path.join(TRACKNET_DIR, 'video_input_720.mp4')} "                 f"--model_path {MODEL_PATH} "                 f"--video_out_path {OUTPUT_VIDEO} --extrapolation"
     subprocess.run(infer_cmd, shell=True)
 
-    # Extract trajectory CSV
     if not os.path.exists(OUTPUT_CSV):
         st.info("CSV missing, extracting ball positions...")
         cap = cv2.VideoCapture(OUTPUT_VIDEO)
@@ -56,13 +53,10 @@ if uploaded_video:
             if not ret: break
             frame = cv2.resize(frame, (640, 360))
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            
-            # Detect red and yellow tennis balls
             mask_red1 = cv2.inRange(hsv, np.array([0,70,50]), np.array([10,255,255]))
             mask_red2 = cv2.inRange(hsv, np.array([170,70,50]), np.array([180,255,255]))
             mask_yellow = cv2.inRange(hsv, np.array([20,100,100]), np.array([35,255,255]))
             mask = mask_red1 + mask_red2 + mask_yellow
-            
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 c = max(contours, key=cv2.contourArea)
@@ -93,7 +87,6 @@ if uploaded_video:
     st.subheader("🎯 Analytics Metrics")
     st.json(analytics_metrics)
 
-    # Basic feedback
     feedback = f"Total Frames: {analytics_metrics['total_frames']}\n"                f"Average Speed: {analytics_metrics['average_speed']:.2f}\n"                f"Max Speed: {analytics_metrics['max_speed']:.2f}\n"                f"Total Distance: {analytics_metrics['total_distance']:.2f}\n"                f"Number of Bounces: {analytics_metrics['num_bounces']}\n\n"
 
     if analytics_metrics['num_bounces'] == 0:
@@ -104,7 +97,6 @@ if uploaded_video:
     st.subheader("📝 Feedback")
     st.text_area("Feedback:", feedback, height=200)
 
-    # Ball Trajectory plot
     st.subheader("📊 Ball Trajectory")
     fig, ax = plt.subplots(figsize=(10,6))
     ax.plot(trajectory_df['X'], trajectory_df['Y'], '-o', markersize=2)
@@ -114,7 +106,6 @@ if uploaded_video:
     ax.set_title("Tennis Ball Trajectory")
     st.pyplot(fig)
 
-    # Video preview with ball positions
     st.subheader("🎥 Video Preview")
     annotated_preview_path = os.path.join(temp_dir, "annotated_preview.mp4")
     cap = cv2.VideoCapture(video_path)
@@ -140,7 +131,6 @@ if uploaded_video:
     out.release()
     st.video(annotated_preview_path)
 
-    # Downloads
     st.download_button("⬇️ Download Trajectory CSV", data=open(OUTPUT_CSV,"rb"), file_name="trajectory.csv")
     st.download_button("⬇️ Download Annotated Video", data=open(annotated_preview_path,"rb"), file_name="annotated_preview.mp4")
     shutil.rmtree(temp_dir)
