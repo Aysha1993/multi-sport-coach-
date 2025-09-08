@@ -1,13 +1,18 @@
 
 # ===============================
-# 🚀 Full Colab / Streamlit Workflow (Runtime TrackNet + HSV Fallback + CPU patch)
+# 🚀 Full Streamlit App: TrackNet + HSV Fallback + CPU-safe
 # ===============================
-import os, shutil, subprocess, tempfile, cv2, sys, importlib
-import numpy as np, pandas as pd, matplotlib.pyplot as plt
+import os
+import shutil
+import subprocess
+import tempfile
+import sys
+import importlib
+import cv2
 import streamlit as st
 
 # -------------------------------
-# 🔧 Ensure torch + torchvision installed (Cloud + Colab compatible)
+# 🔧 Ensure packages installed
 # -------------------------------
 def ensure_package(pkg, extra_args=[]):
     try:
@@ -21,11 +26,13 @@ ensure_package("torch", ["--extra-index-url", "https://download.pytorch.org/whl/
 ensure_package("torchvision", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
 ensure_package("gdown")
 
+import torch
+
 # -------------------------------
 # 0️⃣ Streamlit page setup
 # -------------------------------
 st.set_page_config(page_title="TrackNet Tennis Analyzer", layout="wide")
-st.title("🎾 TrackNet Tennis Analyzer (Runtime + HSV Fallback)")
+st.title("🎾 TrackNet Tennis Analyzer (CPU-safe + HSV Fallback)")
 
 # -------------------------------
 # 🔧 HSV fallback util
@@ -44,6 +51,7 @@ def run_hsv_fallback(video_path, out_path):
         out.write(res)
     cap.release()
     out.release()
+    st.info("✅ HSV fallback finished.")
 
 # -------------------------------
 # 1️⃣ Upload video
@@ -84,11 +92,8 @@ if not os.path.exists(MODEL_PATH):
     st.info("📥 Downloading pretrained TrackNet weights...")
     subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
-
-
-# Patch for CPU-only environment
 # -------------------------------
-# 5️⃣ Ensure infer_on_video.py exists + patch for CPU
+# 5️⃣ Ensure infer_on_video.py exists + CPU patch
 # -------------------------------
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
 if not os.path.exists(INFER_PATH):
@@ -98,21 +103,27 @@ if not os.path.exists(INFER_PATH):
         shell=True
     )
 
-# Force CPU patch
+# Patch infer_on_video.py for CPU-only
 with open(INFER_PATH, "r") as f:
     code = f.read()
-patched_code = code.replace(
-    "torch.load(args.model_path, map_location=device)",
-    "torch.load(args.model_path, map_location='cpu')"
-).replace(
-    "map_location=device",
-    "map_location='cpu'"
-)
-if patched_code != code:
-    with open(INFER_PATH, "w") as f:
-        f.write(patched_code)
-    st.info("🩹 Patched infer_on_video.py → forced CPU mode.")
 
+# Force CPU device and model loading
+code = code.replace(
+    'device = torch.device("cuda" if torch.cuda.is_available() else "cpu")',
+    'device = torch.device("cpu")  # Forced CPU'
+)
+code = code.replace(
+    'torch.load(args.model_path, map_location=device)',
+    'torch.load(args.model_path, map_location="cpu")  # Forced CPU'
+)
+code = code.replace(
+    'model = model.to(device)',
+    'model = model.to("cpu")  # Forced CPU'
+)
+
+with open(INFER_PATH, "w") as f:
+    f.write(code)
+st.info("🩹 Patched infer_on_video.py for CPU mode.")
 
 # -------------------------------
 # 6️⃣ Run TrackNet inference
@@ -135,9 +146,9 @@ try:
     st.success("✅ TrackNet inference finished successfully!")
     st.text(result.stdout)
 except subprocess.CalledProcessError as e:
-    st.error("❌ TrackNet failed. Full error log below:")
-    st.code(e.stderr + "\n" + e.stdout)
-    st.warning("⚠️ Falling back to HSV detection...")
+    st.error("❌ TrackNet failed. Falling back to HSV detection...")
+    st.code(e.stderr + "
+" + e.stdout)
     run_hsv_fallback(video_path, OUTPUT_VIDEO)
     tracknet_success = False
 
