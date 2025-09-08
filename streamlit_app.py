@@ -2,9 +2,21 @@
 # ===============================
 # 🚀 Full Colab / Streamlit Workflow (Runtime TrackNet + HSV Fallback)
 # ===============================
-import os, shutil, subprocess, tempfile, cv2
+import os, shutil, subprocess, tempfile, cv2, sys, importlib
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
 import streamlit as st
+
+# -------------------------------
+# 🔧 Ensure torch is installed (works in Streamlit Cloud)
+# -------------------------------
+def ensure_package(pkg, extra_args=[]):
+    try:
+        importlib.import_module(pkg)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg] + extra_args)
+
+ensure_package("torch", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
+ensure_package("torchvision", ["--extra-index-url", "https://download.pytorch.org/whl/cpu"])
 
 # -------------------------------
 # 0️⃣ Streamlit page setup
