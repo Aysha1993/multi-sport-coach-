@@ -75,8 +75,7 @@ def run_inference():
             os.path.join(TRACKNET_DIR, "infer_on_video.py"),
             "--video_path", video_path,
             "--model_path", MODEL_PATH,
-            "--video_out_path", OUTPUT_VIDEO,
-            "--force_cpu"
+            "--video_out_path", OUTPUT_VIDEO
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
