@@ -109,7 +109,7 @@ infer_code = """import argparse
 import torch
 import cv2
 import numpy as np
-from model import TrackNet   # ✅ Fixed import
+from model import BallTrackerNet   # ✅ Fixed import
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video_path', required=True)
@@ -119,7 +119,7 @@ parser.add_argument('--extrapolation', action='store_true')
 args = parser.parse_args()
 
 device = torch.device('cpu')  # Forced CPU
-model = TrackNet()
+model = BallTrackerNet()
 model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
 model = model.to(device)
 model.eval()
