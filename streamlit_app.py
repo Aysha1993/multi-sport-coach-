@@ -109,7 +109,7 @@ infer_code = """import argparse
 import torch
 import cv2
 import numpy as np
-from model.TrackNet import TrackNet   # ✅ Fixed import
+from model import TrackNet   # ✅ Fixed import
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video_path', required=True)
