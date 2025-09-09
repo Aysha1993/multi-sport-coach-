@@ -10,6 +10,9 @@ import tempfile
 import importlib
 import cv2
 import streamlit as st
+import torch
+import numpy as np
+import csv
 
 # -------------------------------
 # 🔧 Ensure packages installed
@@ -27,8 +30,6 @@ ensure_package("torchvision", ["--extra-index-url", "https://download.pytorch.or
 ensure_package("gdown")
 ensure_package("pandas")
 
-import torch
-
 # -------------------------------
 # 0️⃣ Streamlit page setup
 # -------------------------------
@@ -40,7 +41,7 @@ st.title("🎾 TrackNet Tennis Analyzer (CPU-safe + HSV Fallback + CSV logging)"
 # -------------------------------
 def run_hsv_fallback(video_path, out_path):
     cap = cv2.VideoCapture(video_path)
-    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(out_path, fourcc, 30.0, (int(cap.get(3)), int(cap.get(4))))
     while cap.isOpened():
         ret, frame = cap.read()
@@ -102,14 +103,13 @@ else:
         st.info("📥 Downloading default pretrained TrackNet weights...")
         subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
-
 # -------------------------------
 # 5️⃣ Overwrite infer_on_video.py with CPU-safe version + CSV logger + 3-frame stacking
 # -------------------------------
 INFER_PATH = os.path.join(TRACKNET_DIR, "infer_on_video.py")
-CSV_LOG_PATH = os.path.join(TRACKNET_DIR, "ball_detections.csv")
 
-infer_code = f"""import argparse
+infer_code = f"""
+import argparse
 import torch
 import cv2
 import numpy as np
@@ -134,7 +134,7 @@ cap = cv2.VideoCapture(args.video_path)
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS) or 30
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')   # ✅ safer codec
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (frame_width, frame_height))
 
 frame_buffer = []
@@ -148,28 +148,30 @@ with open(args.csv_out_path, "w", newline="") as csvfile:
         ret, frame = cap.read()
         if not ret:
             break
-
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_buffer.append(rgb_frame)
-
         if len(frame_buffer) < 3:
             frame_idx += 1
             continue
         if len(frame_buffer) > 3:
             frame_buffer.pop(0)
-
         stacked = np.concatenate(frame_buffer, axis=2)  # (H, W, 9)
         input_tensor = torch.from_numpy(stacked).float().permute(2,0,1).unsqueeze(0)/255.0
         input_tensor = input_tensor.to(device)
 
         with torch.no_grad():
-            output = model(input_tensor)   # (1, 256, H, W)
+            output = model(input_tensor)
 
-        heatmap = output.squeeze(0).mean(0).cpu().numpy()  # ✅ now (H, W)
+        heatmap = output.squeeze(0).mean(0).cpu().numpy()
+
+        # ✅ Robust unpack: reshape if 1D
+        if heatmap.ndim == 1:
+            side = int(np.sqrt(heatmap.size))
+            heatmap = heatmap.reshape(side, side)
+
         y, x = np.unravel_index(np.argmax(heatmap), heatmap.shape)
 
         writer.writerow([frame_idx, int(x), int(y)])
-
         cv2.circle(frame, (x, y), 5, (0,0,255), -1)
         out.write(frame)
         frame_idx += 1
@@ -184,7 +186,6 @@ with open(INFER_PATH, "w") as f:
     f.write(infer_code)
 st.info("🩹 infer_on_video.py overwritten with CSV logger + 3-frame stacking (full model compatibility).")
 
-
 # -------------------------------
 # 6️⃣ Run TrackNet inference
 # -------------------------------
@@ -192,8 +193,6 @@ OUTPUT_DIR = os.path.join(WORK_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.mp4")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
-
-tracknet_success = True
 
 try:
     st.info("⚡ Running TrackNet inference... (CPU mode)")
@@ -216,10 +215,6 @@ except Exception as e:
     import traceback
     st.error("❌ TrackNet crashed with exception:")
     st.code(traceback.format_exc())
-
-
-
-
 
 # -------------------------------
 # 7️⃣ Show annotated video + CSV download
