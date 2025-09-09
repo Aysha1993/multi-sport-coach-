@@ -196,6 +196,10 @@ CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
 
 
 import threading
+import subprocess
+import sys
+import streamlit as st
+import os
 
 def run_tracknet_inference():
     try:
@@ -217,19 +221,23 @@ def run_tracknet_inference():
         while True:
             out_line = process.stdout.readline()
             err_line = process.stderr.readline()
+
             if out_line:
                 stdout_lines.append(out_line)
                 st.text(out_line.strip())
+
             if err_line:
                 stderr_lines.append(err_line)
                 st.error(err_line.strip())
-            if out_line == '' and err_line == '' and process.poll() is not None:
+
+            # Break when process finishes and buffers empty
+            if process.poll() is not None and out_line == '' and err_line == '':
                 break
 
         if process.returncode != 0:
             st.error("❌ TrackNet exited with errors.")
-            st.code("
-".join(stderr_lines))
+            # ✅ Use triple quotes for multi-line stderr
+            st.code("""{}""".format("".join(stderr_lines)))
         else:
             st.success("✅ TrackNet inference finished successfully!")
 
@@ -238,6 +246,7 @@ def run_tracknet_inference():
         st.error("❌ Exception while running TrackNet:")
         st.code(traceback.format_exc())
 
+# -------------------------------
 # Run inference in a separate thread to avoid blocking Streamlit
 thread = threading.Thread(target=run_tracknet_inference)
 thread.start()
@@ -245,7 +254,6 @@ thread.join()
 
 # -------------------------------
 # Show annotated video + CSV download
-# -------------------------------
 if os.path.exists(OUTPUT_VIDEO):
     st.subheader("🎥 Annotated Video")
     st.video(OUTPUT_VIDEO)
@@ -256,3 +264,4 @@ if os.path.exists(CSV_OUTPUT):
     st.subheader("📊 Ball Detections Log")
     with open(CSV_OUTPUT, "rb") as f:
         st.download_button("⬇️ Download Ball Detections CSV", f, "ball_detections.csv")
+
