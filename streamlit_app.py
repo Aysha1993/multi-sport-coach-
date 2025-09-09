@@ -226,11 +226,6 @@ except Exception:
     st.error("❌ Exception while running TrackNet:")
     st.code(traceback.format_exc())
 
-# -------------------------------
-# Run inference in a separate thread to avoid blocking Streamlit
-thread = threading.Thread(target=run_tracknet_inference)
-thread.start()
-thread.join()
 
 # -------------------------------
 # Show annotated video + CSV download
