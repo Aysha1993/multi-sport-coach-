@@ -186,49 +186,69 @@ with open(INFER_PATH, "w") as f:
     f.write(infer_code)
 st.info("🩹 infer_on_video.py overwritten with CSV logger + 3-frame stacking (full model compatibility).")
 
-# -------------------------------
-# 6️⃣ Run TrackNet inference
-# -------------------------------
+
+
+# ================================
+# 6️⃣ Run TrackNet inference safely
+# ================================
 OUTPUT_DIR = os.path.join(WORK_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.mp4")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
 
+st.info("⚡ Running TrackNet inference (CPU-safe)...")
 
-import threading
-import subprocess
-import sys
-import streamlit as st
-import os
+# Resize video function to reduce memory
+def resize_video(input_path, output_path, width=640, height=360):
+    cap = cv2.VideoCapture(input_path)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, cap.get(cv2.CAP_PROP_FPS) or 30, (width, height))
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_resized = cv2.resize(frame, (width, height))
+        out.write(frame_resized)
+    cap.release()
+    out.release()
+    return output_path
 
+# Safe inference with try-except
 try:
-    st.info("⚡ Running TrackNet inference... (CPU mode)")
+    # 1️⃣ Optionally resize video to 480p
+    resized_video_path = os.path.join(WORK_DIR, "input_video_480p.mp4")
+    resize_video(video_path, resized_video_path, width=640, height=360)
 
+    # 2️⃣ Run TrackNet inference via subprocess (blocking, no live logging)
     cmd = [
         sys.executable, INFER_PATH,
-        "--video_path", video_path,
+        "--video_path", resized_video_path,
         "--model_path", MODEL_PATH,
         "--video_out_path", OUTPUT_VIDEO,
         "--csv_out_path", CSV_OUTPUT
     ]
-
     result = subprocess.run(cmd, capture_output=True, text=True)
-    
+
     if result.returncode != 0:
-        st.error("❌ TrackNet exited with errors.")
+        st.warning("❌ TrackNet inference failed. Attempting HSV fallback...")
         st.code(result.stderr)
+
+        # Run HSV fallback instead
+        HSV_OUTPUT = os.path.join(OUTPUT_DIR, "hsv_fallback_output.mp4")
+        run_hsv_fallback(video_path, HSV_OUTPUT)
+        OUTPUT_VIDEO = HSV_OUTPUT
+
     else:
         st.success("✅ TrackNet inference finished successfully!")
-        st.text(result.stdout)
 
 except Exception:
     import traceback
-    st.error("❌ Exception while running TrackNet:")
+    st.error("❌ Exception during TrackNet inference:")
     st.code(traceback.format_exc())
 
-
 # -------------------------------
-# Show annotated video + CSV download
+# 7️⃣ Show annotated video + CSV download
+# -------------------------------
 if os.path.exists(OUTPUT_VIDEO):
     st.subheader("🎥 Annotated Video")
     st.video(OUTPUT_VIDEO)
@@ -239,4 +259,3 @@ if os.path.exists(CSV_OUTPUT):
     st.subheader("📊 Ball Detections Log")
     with open(CSV_OUTPUT, "rb") as f:
         st.download_button("⬇️ Download Ball Detections CSV", f, "ball_detections.csv")
-
