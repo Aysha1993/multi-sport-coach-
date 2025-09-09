@@ -204,8 +204,7 @@ try:
         "--video_path", video_path,
         "--model_path", MODEL_PATH,
         "--video_out_path", OUTPUT_VIDEO,
-        "--csv_out_path", CSV_OUTPUT,
-        "--extrapolation"
+        "--csv_out_path", CSV_OUTPUT
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
