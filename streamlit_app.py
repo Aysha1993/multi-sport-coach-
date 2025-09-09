@@ -114,7 +114,7 @@ import torch
 import cv2
 import numpy as np
 import csv
-from model import TrackNet   # ✅ Your model class
+from model import BallTrackerNet   # ✅ Your model class
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video_path', required=True)
@@ -125,7 +125,7 @@ parser.add_argument('--extrapolation', action='store_true')
 args = parser.parse_args()
 
 device = torch.device('cpu')  # Forced CPU
-model = TrackNet()
+model = BallTrackerNet()
 model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
 model = model.to(device)
 model.eval()
