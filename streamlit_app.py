@@ -194,30 +194,57 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.mp4")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
 
-try:
-    st.info("⚡ Running TrackNet inference... (CPU mode)")
-    cmd = [
-        sys.executable, INFER_PATH,
-        "--video_path", video_path,
-        "--model_path", MODEL_PATH,
-        "--video_out_path", OUTPUT_VIDEO,
-        "--csv_out_path", CSV_OUTPUT
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        st.error("❌ TrackNet failed. Showing stderr:")
-        st.code(result.stderr)
-        st.stop()
-    else:
-        st.success("✅ TrackNet inference finished successfully!")
-        st.text(result.stdout)
-except Exception as e:
-    import traceback
-    st.error("❌ TrackNet crashed with exception:")
-    st.code(traceback.format_exc())
+
+import threading
+
+def run_tracknet_inference():
+    try:
+        st.info("⚡ Running TrackNet inference... (CPU mode)")
+
+        cmd = [
+            sys.executable, INFER_PATH,
+            "--video_path", video_path,
+            "--model_path", MODEL_PATH,
+            "--video_out_path", OUTPUT_VIDEO,
+            "--csv_out_path", CSV_OUTPUT
+        ]
+
+        # Run TrackNet and capture stdout/stderr line by line
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout_lines = []
+        stderr_lines = []
+
+        while True:
+            out_line = process.stdout.readline()
+            err_line = process.stderr.readline()
+            if out_line:
+                stdout_lines.append(out_line)
+                st.text(out_line.strip())
+            if err_line:
+                stderr_lines.append(err_line)
+                st.error(err_line.strip())
+            if out_line == '' and err_line == '' and process.poll() is not None:
+                break
+
+        if process.returncode != 0:
+            st.error("❌ TrackNet exited with errors.")
+            st.code("
+".join(stderr_lines))
+        else:
+            st.success("✅ TrackNet inference finished successfully!")
+
+    except Exception:
+        import traceback
+        st.error("❌ Exception while running TrackNet:")
+        st.code(traceback.format_exc())
+
+# Run inference in a separate thread to avoid blocking Streamlit
+thread = threading.Thread(target=run_tracknet_inference)
+thread.start()
+thread.join()
 
 # -------------------------------
-# 7️⃣ Show annotated video + CSV download
+# Show annotated video + CSV download
 # -------------------------------
 if os.path.exists(OUTPUT_VIDEO):
     st.subheader("🎥 Annotated Video")
