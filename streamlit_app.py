@@ -70,7 +70,6 @@ def run_inference():
               "--model_path", MODEL_PATH,
               "--video_out_path", OUTPUT_VIDEO]
 
-        
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             st.error("❌ TrackNet crashed:"); st.code(result.stderr)
