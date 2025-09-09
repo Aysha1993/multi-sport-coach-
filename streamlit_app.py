@@ -126,7 +126,7 @@ args = parser.parse_args()
 device = torch.device('cpu')
 model = BallTrackerNet()
 state_dict = torch.load(args.model_path, map_location='cpu')
-model.load_state_dict(state_dict, strict=False)  # ✅ ignore mismatched keys
+model.load_state_dict(state_dict, strict=False)
 model = model.to(device)
 model.eval()
 
@@ -134,7 +134,7 @@ cap = cv2.VideoCapture(args.video_path)
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS) or 30
-fourcc = cv2.VideoWriter_fourcc(*'XVID')
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')   # ✅ safer codec
 out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (frame_width, frame_height))
 
 frame_buffer = []
@@ -148,6 +148,7 @@ with open(args.csv_out_path, "w", newline="") as csvfile:
         ret, frame = cap.read()
         if not ret:
             break
+
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_buffer.append(rgb_frame)
 
@@ -162,12 +163,9 @@ with open(args.csv_out_path, "w", newline="") as csvfile:
         input_tensor = input_tensor.to(device)
 
         with torch.no_grad():
-            output = model(input_tensor)   # (1, 256, H*W)
-        
-        # ✅ Reshape back to (H, W)
-        output = output.squeeze(0).mean(0)   # average over 256 channels → (H*W,)
-        heatmap = output.reshape(frame_height, frame_width).cpu().numpy()
+            output = model(input_tensor)   # (1, 256, H, W)
 
+        heatmap = output.squeeze(0).mean(0).cpu().numpy()  # ✅ now (H, W)
         y, x = np.unravel_index(np.argmax(heatmap), heatmap.shape)
 
         writer.writerow([frame_idx, int(x), int(y)])
@@ -180,8 +178,8 @@ cap.release()
 out.release()
 print("✅ Inference finished. Video:", args.video_out_path)
 print("✅ CSV detections saved:", args.csv_out_path)
-
 """
+
 with open(INFER_PATH, "w") as f:
     f.write(infer_code)
 st.info("🩹 infer_on_video.py overwritten with CSV logger + 3-frame stacking (full model compatibility).")
@@ -192,7 +190,7 @@ st.info("🩹 infer_on_video.py overwritten with CSV logger + 3-frame stacking (
 # -------------------------------
 OUTPUT_DIR = os.path.join(WORK_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
+OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.mp4")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
 
 tracknet_success = True
@@ -230,7 +228,7 @@ if os.path.exists(OUTPUT_VIDEO):
     st.subheader("🎥 Annotated Video")
     st.video(OUTPUT_VIDEO)
     with open(OUTPUT_VIDEO, "rb") as f:
-        st.download_button("⬇️ Download Annotated Video", f, "annotated_output.avi")
+        st.download_button("⬇️ Download Annotated Video", f, "annotated_output.mp4")
 
 if os.path.exists(CSV_OUTPUT):
     st.subheader("📊 Ball Detections Log")
