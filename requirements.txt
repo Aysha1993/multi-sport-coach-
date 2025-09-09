@@ -5,3 +5,4 @@ torchvision
 opencv-python-headless
 pandas
 gdown
+scipy
