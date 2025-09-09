@@ -201,50 +201,30 @@ import sys
 import streamlit as st
 import os
 
-def run_tracknet_inference():
-    try:
-        st.info("⚡ Running TrackNet inference... (CPU mode)")
+try:
+    st.info("⚡ Running TrackNet inference... (CPU mode)")
 
-        cmd = [
-            sys.executable, INFER_PATH,
-            "--video_path", video_path,
-            "--model_path", MODEL_PATH,
-            "--video_out_path", OUTPUT_VIDEO,
-            "--csv_out_path", CSV_OUTPUT
-        ]
+    cmd = [
+        sys.executable, INFER_PATH,
+        "--video_path", video_path,
+        "--model_path", MODEL_PATH,
+        "--video_out_path", OUTPUT_VIDEO,
+        "--csv_out_path", CSV_OUTPUT
+    ]
 
-        # Run TrackNet and capture stdout/stderr line by line
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        stdout_lines = []
-        stderr_lines = []
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        st.error("❌ TrackNet exited with errors.")
+        st.code(result.stderr)
+    else:
+        st.success("✅ TrackNet inference finished successfully!")
+        st.text(result.stdout)
 
-        while True:
-            out_line = process.stdout.readline()
-            err_line = process.stderr.readline()
-
-            if out_line:
-                stdout_lines.append(out_line)
-                st.text(out_line.strip())
-
-            if err_line:
-                stderr_lines.append(err_line)
-                st.error(err_line.strip())
-
-            # Break when process finishes and buffers empty
-            if process.poll() is not None and out_line == '' and err_line == '':
-                break
-
-        if process.returncode != 0:
-            st.error("❌ TrackNet exited with errors.")
-            # ✅ Use triple quotes for multi-line stderr
-            st.code("""{}""".format("".join(stderr_lines)))
-        else:
-            st.success("✅ TrackNet inference finished successfully!")
-
-    except Exception:
-        import traceback
-        st.error("❌ Exception while running TrackNet:")
-        st.code(traceback.format_exc())
+except Exception:
+    import traceback
+    st.error("❌ Exception while running TrackNet:")
+    st.code(traceback.format_exc())
 
 # -------------------------------
 # Run inference in a separate thread to avoid blocking Streamlit
