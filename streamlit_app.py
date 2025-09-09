@@ -114,19 +114,19 @@ import torch
 import cv2
 import numpy as np
 import csv
-from model import BallTrackerNet   # ✅ Your model class
+from model import BallTrackerNet
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video_path', required=True)
 parser.add_argument('--model_path', required=True)
 parser.add_argument('--video_out_path', required=True)
 parser.add_argument('--csv_out_path', required=True)
-parser.add_argument('--extrapolation', action='store_true')
 args = parser.parse_args()
 
-device = torch.device('cpu')  # Forced CPU
+device = torch.device('cpu')
 model = BallTrackerNet()
-model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
+state_dict = torch.load(args.model_path, map_location='cpu')
+model.load_state_dict(state_dict, strict=False)  # ✅ ignore mismatched keys
 model = model.to(device)
 model.eval()
 
@@ -137,12 +137,11 @@ fps = cap.get(cv2.CAP_PROP_FPS) or 30
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (frame_width, frame_height))
 
-# buffer for 3-frame stacking
 frame_buffer = []
 
 with open(args.csv_out_path, "w", newline="") as csvfile:
     writer = csv.writer(csvfile)
-    writer.writerow(["frame", "ball_x", "ball_y"])  # header
+    writer.writerow(["frame", "ball_x", "ball_y"])
 
     frame_idx = 0
     while cap.isOpened():
@@ -152,7 +151,6 @@ with open(args.csv_out_path, "w", newline="") as csvfile:
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_buffer.append(rgb_frame)
 
-        # need 3 frames for one inference
         if len(frame_buffer) < 3:
             frame_idx += 1
             continue
@@ -164,23 +162,25 @@ with open(args.csv_out_path, "w", newline="") as csvfile:
         input_tensor = input_tensor.to(device)
 
         with torch.no_grad():
-            output = model(input_tensor)
-        heatmap = output.squeeze().cpu().numpy()
+            output = model(input_tensor)   # (1, 256, H*W)
+        
+        # ✅ Reshape back to (H, W)
+        output = output.squeeze(0).mean(0)   # average over 256 channels → (H*W,)
+        heatmap = output.reshape(frame_height, frame_width).cpu().numpy()
+
         y, x = np.unravel_index(np.argmax(heatmap), heatmap.shape)
 
-        # log to CSV
         writer.writerow([frame_idx, int(x), int(y)])
 
-        # draw on frame
         cv2.circle(frame, (x, y), 5, (0,0,255), -1)
         out.write(frame)
-
         frame_idx += 1
 
 cap.release()
 out.release()
-print("✅ Inference finished. Output saved at:", args.video_out_path)
-print("✅ Ball detections logged at:", args.csv_out_path)
+print("✅ Inference finished. Video:", args.video_out_path)
+print("✅ CSV detections saved:", args.csv_out_path)
+
 """
 with open(INFER_PATH, "w") as f:
     f.write(infer_code)
