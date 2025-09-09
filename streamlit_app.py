@@ -196,6 +196,7 @@ OUTPUT_VIDEO = os.path.join(OUTPUT_DIR, "annotated_output.avi")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR, "ball_detections.csv")
 
 tracknet_success = True
+
 try:
     st.info("⚡ Running TrackNet inference... (CPU mode)")
     cmd = [
@@ -206,14 +207,22 @@ try:
         "--csv_out_path", CSV_OUTPUT,
         "--extrapolation"
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    st.success("✅ TrackNet inference finished successfully!")
-    st.text(result.stdout)
-except subprocess.CalledProcessError as e:
-    st.error("❌ TrackNet failed. Falling back to HSV detection...")
-    st.code(e.stderr + "\n" + e.stdout)
-    run_hsv_fallback(video_path, OUTPUT_VIDEO)
-    tracknet_success = False
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        st.error("❌ TrackNet failed. Showing stderr:")
+        st.code(result.stderr)
+        st.stop()
+    else:
+        st.success("✅ TrackNet inference finished successfully!")
+        st.text(result.stdout)
+except Exception as e:
+    import traceback
+    st.error("❌ TrackNet crashed with exception:")
+    st.code(traceback.format_exc())
+
+
+
+
 
 # -------------------------------
 # 7️⃣ Show annotated video + CSV download
