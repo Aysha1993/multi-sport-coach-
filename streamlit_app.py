@@ -65,11 +65,12 @@ HSV_OUTPUT = os.path.join(OUTPUT_DIR,"hsv_fallback.mp4")
 # -------------------------------
 def run_inference():
     try:
-        cmd = [sys.executable, os.path.join(TRACKNET_DIR,"infer_on_video.py"),
-               "--video_path", video_path,
-               "--model_path", MODEL_PATH,
-               "--video_out_path", OUTPUT_VIDEO,
-               "--csv_out_path", CSV_OUTPUT]
+        cmd = [sys.executable, os.path.join(TRACKNET_DIR, "infer_on_video.py"),
+              "--video_path", video_path,
+              "--model_path", MODEL_PATH,
+              "--video_out_path", OUTPUT_VIDEO]
+
+        
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             st.error("❌ TrackNet crashed:"); st.code(result.stderr)
