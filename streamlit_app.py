@@ -1,5 +1,6 @@
 
-import os, sys, subprocess, tempfile, cv2, streamlit as st, numpy as np
+import os, sys, subprocess, tempfile, cv2, torch
+import streamlit as st
 
 st.set_page_config(page_title="🎾 TrackNet Tennis Analyzer", layout="wide")
 st.title("🎾 TrackNet Tennis Analyzer (CPU-safe + HSV fallback + CSV logging)")
@@ -13,12 +14,14 @@ def run_hsv_fallback(video_path, out_path):
     out = cv2.VideoWriter(out_path, fourcc, 30.0, (int(cap.get(3)), int(cap.get(4))))
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret: break
+        if not ret:
+            break
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, (29,86,6), (64,255,255))
         res = cv2.bitwise_and(frame, frame, mask=mask)
         out.write(res)
-    cap.release(); out.release()
+    cap.release()
+    out.release()
     st.warning("⚠️ TrackNet failed → HSV fallback finished.")
 
 # -------------------------------
@@ -27,9 +30,11 @@ def run_hsv_fallback(video_path, out_path):
 uploaded_video = st.file_uploader("📤 Upload Tennis Video", type=["mp4"])
 if not uploaded_video:
     st.stop()
+
 WORK_DIR = tempfile.mkdtemp()
 video_path = os.path.join(WORK_DIR, "input_video.mp4")
-with open(video_path,"wb") as f: f.write(uploaded_video.read())
+with open(video_path,"wb") as f:
+    f.write(uploaded_video.read())
 
 # -------------------------------
 # TrackNet repo + model
@@ -38,58 +43,52 @@ TRACKNET_DIR = os.path.join(WORK_DIR,"TrackNet")
 if not os.path.exists(TRACKNET_DIR):
     subprocess.run("git clone --depth 1 https://github.com/yastrebksv/TrackNet.git "+TRACKNET_DIR, shell=True, check=True)
 
-# 🔧 CPU-safe patch inject into TrackNet/infer_on_video.py
-infer_file = os.path.join(TRACKNET_DIR,"infer_on_video.py")
-if os.path.exists(infer_file):
-    with open(infer_file,"r") as f: code = f.read()
-    if "--force_cpu" not in code:
-        patched = code.replace(
-            "parser = argparse.ArgumentParser()",
-            "parser = argparse.ArgumentParser()\nparser.add_argument('--force_cpu', action='store_true', help='Force CPU mode (for Streamlit Cloud)')"
-        ).replace(
-            "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
-            "if args.force_cpu:\n    device = torch.device('cpu')\nelse:\n    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\nstate_dict = torch.load(args.model_path, map_location=device)"
-        )
-        with open(infer_file,"w") as f: f.write(patched)
-
 MODEL_PATH = os.path.join(TRACKNET_DIR,"models","TrackNet_best_latest123.pth")
 os.makedirs(os.path.join(TRACKNET_DIR,"models"),exist_ok=True)
 
+# Google Drive default weights
 WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
+
 uploaded_model = st.file_uploader("📤 Upload TrackNet Weights (.pth)", type=["pth"])
 if uploaded_model:
     MODEL_PATH = os.path.join(TRACKNET_DIR,"models",uploaded_model.name)
-    with open(MODEL_PATH,"wb") as f: f.write(uploaded_model.read())
+    with open(MODEL_PATH,"wb") as f:
+        f.write(uploaded_model.read())
 else:
     if not os.path.exists(MODEL_PATH):
         st.info("📥 Downloading default pretrained TrackNet weights...")
         subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
-OUTPUT_DIR = os.path.join(WORK_DIR,"output"); os.makedirs(OUTPUT_DIR,exist_ok=True)
+OUTPUT_DIR = os.path.join(WORK_DIR,"output")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_VIDEO = os.path.join(OUTPUT_DIR,"annotated_output.mp4")
 CSV_OUTPUT = os.path.join(OUTPUT_DIR,"ball_detections.csv")
 HSV_OUTPUT = os.path.join(OUTPUT_DIR,"hsv_fallback.mp4")
 
 # -------------------------------
-# Inference runner
+# Inference runner (CPU-safe)
 # -------------------------------
 def run_inference():
     try:
-        cmd = [sys.executable, os.path.join(TRACKNET_DIR, "infer_on_video.py"),
-              "--video_path", video_path,
-              "--model_path", MODEL_PATH,
-              "--video_out_path", OUTPUT_VIDEO,
-              "--csv_out_path", CSV_OUTPUT,
-              "--force_cpu"]   # ✅ always safe in Streamlit Cloud
-
+        cmd = [
+            sys.executable,
+            os.path.join(TRACKNET_DIR, "infer_on_video.py"),
+            "--video_path", video_path,
+            "--model_path", MODEL_PATH,
+            "--video_out_path", OUTPUT_VIDEO,
+            "--force_cpu"
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            st.error("❌ TrackNet crashed:"); st.code(result.stderr)
-            run_hsv_fallback(video_path, HSV_OUTPUT); return HSV_OUTPUT,None
+            st.error("❌ TrackNet crashed:")
+            st.code(result.stderr)
+            run_hsv_fallback(video_path, HSV_OUTPUT)
+            return HSV_OUTPUT, None
         return OUTPUT_VIDEO, CSV_OUTPUT
     except Exception as e:
-        st.error(f"❌ Exception: {e}"); run_hsv_fallback(video_path, HSV_OUTPUT)
-        return HSV_OUTPUT,None
+        st.error(f"❌ Exception: {e}")
+        run_hsv_fallback(video_path, HSV_OUTPUT)
+        return HSV_OUTPUT, None
 
 with st.spinner("⚡ Running TrackNet Inference..."):
     final_video, final_csv = run_inference()
