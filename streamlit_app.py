@@ -1,6 +1,7 @@
 
 # ===============================
-# 🎾 Streamlit App: TrackNet Tennis Analyzer (CPU-safe + HSV Fallback)
+# 🎾 Streamlit App: TrackNet Tennis Analyzer
+# (CPU-safe + HSV fallback + custom weights support)
 # ===============================
 import os
 import sys
@@ -82,14 +83,23 @@ if not os.path.exists(TRACKNET_DIR):
     )
 
 # -------------------------------
-# 4️⃣ Download pretrained weights if missing
+# 4️⃣ Load pretrained weights (custom or default)
 # -------------------------------
 MODEL_PATH = os.path.join(TRACKNET_DIR, "models", "TrackNet_best_latest123.pth")
 os.makedirs(os.path.join(TRACKNET_DIR, "models"), exist_ok=True)
-WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
-if not os.path.exists(MODEL_PATH):
-    st.info("📥 Downloading pretrained TrackNet weights...")
-    subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
+
+# Allow custom weight upload
+uploaded_model = st.file_uploader("Upload your trained TrackNet weights (.pth)", type=["pth"])
+if uploaded_model:
+    MODEL_PATH = os.path.join(TRACKNET_DIR, "models", uploaded_model.name)
+    with open(MODEL_PATH, "wb") as f:
+        f.write(uploaded_model.read())
+    st.success(f"✅ Using your uploaded model: {uploaded_model.name}")
+else:
+    WEIGHTS_URL = "https://drive.google.com/uc?id=1XEYZ4myUN7QT-NeBYJI0xteLsvs-ZAOl"
+    if not os.path.exists(MODEL_PATH):
+        st.info("📥 Downloading default pretrained TrackNet weights...")
+        subprocess.run(f"gdown {WEIGHTS_URL} -O {MODEL_PATH}", shell=True, check=True)
 
 # -------------------------------
 # 5️⃣ Overwrite infer_on_video.py with CPU-safe version
@@ -99,7 +109,7 @@ infer_code = """import argparse
 import torch
 import cv2
 import numpy as np
-from model import TrackNet
+from model.TrackNet import TrackNet   # ✅ Fixed import
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--video_path', required=True)
@@ -110,14 +120,14 @@ args = parser.parse_args()
 
 device = torch.device('cpu')  # Forced CPU
 model = TrackNet()
-model.load_state_dict(torch.load(args.model_path, map_location='cpu'))  # Forced CPU
-model = model.to(device)  # Forced CPU
+model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
+model = model.to(device)
 model.eval()
 
 cap = cv2.VideoCapture(args.video_path)
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = cap.get(cv2.CAP_PROP_FPS)
+fps = cap.get(cv2.CAP_PROP_FPS) or 30
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (frame_width, frame_height))
 
