@@ -21,14 +21,84 @@ if not os.path.exists(TRACKNET_DIR):
             check=True
         )
     except subprocess.CalledProcessError as e:
-        st.error(f"Failed to clone repository: {e}")
+        st.error(f"Failed to clone repository: {{e}}")
         st.stop()
 
 # --- Write the patched infer_on_video.py file ---
 st.info("🩹 Patching infer_on_video.py for CPU compatibility...")
 infer_path = os.path.join(TRACKNET_DIR, "infer_on_video.py")
+safe_infer_code = '''
+import argparse, torch, cv2, os
+import csv
+from model import BallTrackerNet
+from general import postprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--batch_size', type=int, default=1)
+parser.add_argument('--model_path', type=str, required=True)
+parser.add_argument('--video_path', type=str, required=True)
+parser.add_argument('--video_out_path', type=str, required=True)
+parser.add_argument('--extrapolation', action='store_true')
+args = parser.parse_args()
+
+# CPU-safe load
+device = torch.device("cpu")
+try:
+    state_dict = torch.load(args.model_path, map_location=device)
+    model = BallTrackerNet()
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+except Exception as e:
+    print(f"Error loading model: {{e}}")
+    exit(1)
+
+cap = cv2.VideoCapture(args.video_path)
+fps = cap.get(cv2.CAP_PROP_FPS)
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+out = cv2.VideoWriter(args.video_out_path, fourcc, fps, (width, height))
+
+csv_out_path = os.path.splitext(args.video_out_path)[0] + ".csv"
+csv_file = open(csv_out_path, 'w', newline='')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(['frame', 'x', 'y'])
+
+frame_count = 0
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    inp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    inp = cv2.resize(inp, (640, 360))
+    inp = torch.tensor(inp / 255.0, dtype=torch.float32).permute(2,0,1).unsqueeze(0).to(device)
+    
+    with torch.no_grad():
+        pred = model(inp)
+    
+    ball_mask, center = postprocess(pred)
+    
+    # Scale center coordinates back to original video size
+    if center is not None:
+        original_x = int(center[0] * width / 640)
+        original_y = int(center[1] * height / 360)
+        cv2.circle(frame, (original_x, original_y), 5, (0,0,255), -1)
+        csv_writer.writerow([frame_count, original_x, original_y])
+    else:
+        csv_writer.writerow([frame_count, '', ''])
+        
+    out.write(frame)
+    frame_count += 1
+
+cap.release()
+out.release()
+csv_file.close()
+
+print(f"[INFO] Done. Saved annotated video to {args.video_out_path}")
+'''
+
 with open(infer_path, "w") as f:
-    # Use f-string to write the content of the safe_infer_code variable
     f.write(safe_infer_code)
 
 # --- HSV Fallback Function ---
@@ -77,7 +147,7 @@ else:
             subprocess.run(["pip", "install", "gdown"], check=True)
             subprocess.run(["gdown", WEIGHTS_URL, "-O", MODEL_PATH], check=True)
         except subprocess.CalledProcessError as e:
-            st.error(f"Failed to download weights: {e}")
+            st.error(f"Failed to download weights: {{e}}")
             st.stop()
 
 # --- Inference Runner ---
@@ -97,11 +167,11 @@ def run_inference():
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return OUTPUT_VIDEO, CSV_OUTPUT
     except subprocess.CalledProcessError as e:
-        st.error(f"❌ TrackNet crashed: {e.stderr}")
+        st.error(f"❌ TrackNet crashed: {{e.stderr}}")
         run_hsv_fallback(video_path, HSV_OUTPUT)
         return HSV_OUTPUT, None
     except Exception as e:
-        st.error(f"❌ Exception: {e}")
+        st.error(f"❌ Exception: {{e}}")
         run_hsv_fallback(video_path, HSV_OUTPUT)
         return HSV_OUTPUT, None
 
